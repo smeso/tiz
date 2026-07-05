@@ -1,16 +1,16 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["flit_core>=3.8"]
+build-backend = "flit_core.buildapi"
 
 [project]
-name = "tiz"
+name = "tizbot"
 version = "0.1.0"
 description = "An agentic AI chatbot with sandboxed tool execution"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
 authors = [
-    {name = "Your Name", email = "your.email@example.com"}
+    {name = "Salvatore Mesoraca", email = "s.mesoraca16@gmail.com"}
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -58,11 +58,9 @@ Documentation = "https://github.com/smeso/tiz#readme"
 Repository = "https://github.com/smeso/tiz.git"
 Issues = "https://github.com/smeso/tiz/issues"
 
-[tool.setuptools.packages.find]
-where = ["src"]
-
-[tool.setuptools.package-data]
-tiz = ["py.typed", "data/**/*", "worker_scripts/*"]
+[tool.flit.module]
+name = "tiz"
+srcdir = "src"
 
 [tool.ruff]
 target-version = "py310"

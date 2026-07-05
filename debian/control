@@ -1,7 +1,7 @@
 Source: tiz
 Section: python
 Priority: optional
-Maintainer: Your Name <your.email@example.com>
+Maintainer: Salvatore Mesoraca <s.mesoraca16@gmail.com>
 Build-Depends: debhelper-compat (= 13),
                dh-python,
                python3-all,

@@ -185,25 +185,25 @@ Install
 #### From PyPI
 
 ```bash
-pip install tiz
+pip install tizbot
 ```
 
 For audio recording support in the terminal chat:
 
 ```bash
-pip install tiz[audio]
+pip install tizbot[audio]
 ```
 
 For shell autocomplete:
 
 ```bash
-pip install tiz[completion]
+pip install tizbot[completion]
 ```
 
 For minified web assets:
 
 ```bash
-pip install tiz[minify]
+pip install tizbot[minify]
 ```
 
 #### From the Debian package
@@ -227,9 +227,9 @@ Tiz requires:
 
 * **Python 3.10+**
 * A container runtime: **Podman** (must be available in PATH)
-* For audio recording in the terminal chat: **PyAudio** (`pip install tiz[audio]`)
-* For minified web chat: **htmlmin** and **rjsmin** (`pip install tiz[minify]`)
-* For shell autocomplete: **argcomplete** (`pip install tiz[completion]`)
+* For audio recording in the terminal chat: **PyAudio** (`pip install tizbot[audio]`)
+* For minified web chat: **htmlmin** and **rjsmin** (`pip install tizbot[minify]`)
+* For shell autocomplete: **argcomplete** (`pip install tizbot[completion]`)
 
 #### Quick start
 

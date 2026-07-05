@@ -77,7 +77,7 @@ def record_audio(
     except ImportError:
         msg = (
             "pyaudio is required for audio recording. "
-            "Install it with: pip install tiz[audio]"
+            "Install it with: pip install tizbot[audio]"
         )
         raise ImportError(msg) from None
 
