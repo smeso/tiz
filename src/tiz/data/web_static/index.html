@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <script src="theme.js"></script>
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+        />
+        <meta name="referrer" content="no-referrer" />
+        <meta
+            http-equiv="Content-Security-Policy"
+            content="default-src 'self'; script-src 'self'; img-src 'self' blob:; media-src 'self' blob:;"
+        />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta
+            name="apple-mobile-web-app-status-bar-style"
+            content="black-translucent"
+        />
+        <meta
+            name="theme-color"
+            content="#f5f5f7"
+            media="(prefers-color-scheme: light)"
+        />
+        <meta
+            name="theme-color"
+            content="#0a0a0f"
+            media="(prefers-color-scheme: dark)"
+        />
+        <meta name="color-scheme" content="light dark" />
+        <meta name="description" content="Tiz - AI-powered chatbot assistant" />
+        <meta name="application-name" content="Tiz" />
+        <title>Tiz Chat</title>
+        <link rel="manifest" href="manifest.json" />
+        <link rel="icon" href="favicon.ico" sizes="48x48" />
+        <link rel="icon" href="favicon.svg" sizes="any" type="image/svg+xml" />
+        <link
+            rel="apple-touch-icon"
+            href="apple-touch-icon.png"
+            sizes="180x180"
+        />
+        <link
+            rel="icon"
+            type="image/png"
+            sizes="192x192"
+            href="favicon-192x192.png"
+        />
+        <link
+            rel="icon"
+            type="image/png"
+            sizes="512x512"
+            href="favicon-512x512.png"
+        />
+        <meta name="apple-mobile-web-app-title" content="Tiz" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <link rel="stylesheet" href="style.css" />
+    </head>
+    <body>
+        <noscript>
+            <div class="noscript-message">
+                JavaScript is required to use Tiz Chat. Please enable JavaScript
+                in your browser settings.
+            </div>
+        </noscript>
+        <div class="app">
+            <header class="header">
+                <div class="header-left">
+                    <div class="logo">
+                        <svg
+                            class="logo-img"
+                            viewBox="0 0 120 120"
+                            width="120"
+                            height="120"
+                            xmlns="http://www.w3.org/2000/svg"
+                            aria-hidden="true"
+                        >
+                            <path
+                                d="M35 15 L15 15 L15 105 L35 105"
+                                stroke="currentColor"
+                                stroke-width="6"
+                                stroke-linecap="round"
+                                fill="none"
+                            />
+                            <path
+                                d="M85 15 L105 15 L105 105 L85 105"
+                                stroke="currentColor"
+                                stroke-width="6"
+                                stroke-linecap="round"
+                                fill="none"
+                            />
+                            <path
+                                d="M38 30 L82 30"
+                                stroke="currentColor"
+                                stroke-width="6"
+                                stroke-linecap="round"
+                            />
+                            <path
+                                d="M 60,30.147087 V 93.088825"
+                                stroke="currentColor"
+                                stroke-width="6"
+                                stroke-linecap="round"
+                            />
+                        </svg>
+                    </div>
+                    <h1 class="title">Tiz</h1>
+                    <div class="chat-selector-wrapper">
+                        <button
+                            id="chat-selector-btn"
+                            class="chat-selector-btn"
+                            aria-label="Switch chat"
+                            aria-haspopup="menu"
+                            aria-expanded="false"
+                        >
+                            <span id="chat-selector-label">Loading...</span>
+                            <svg
+                                width="12"
+                                height="12"
+                                viewBox="0 0 12 12"
+                                fill="none"
+                                aria-hidden="true"
+                            >
+                                <path
+                                    d="M3 5l3 3 3-3"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                />
+                            </svg>
+                        </button>
+                        <div
+                            id="chat-selector-menu"
+                            class="chat-selector-menu"
+                            role="menu"
+                        >
+                            <div class="chat-selector-menu-header">
+                                Select a chat
+                            </div>
+                            <div id="chat-selector-options"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <button
+                        id="clear-btn"
+                        class="icon-btn"
+                        aria-label="Clear chat"
+                        title="Clear chat"
+                    >
+                        <svg
+                            width="20"
+                            height="20"
+                            viewBox="0 0 20 20"
+                            fill="none"
+                            aria-hidden="true"
+                        >
+                            <path
+                                d="M4 5h12M7 5V4a1 1 0 011-1h4a1 1 0 011 1v1M5 5v10a2 2 0 002 2h6a2 2 0 002-2V5"
+                                stroke="currentColor"
+                                stroke-width="1.5"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            />
+                            <path
+                                d="M8 8v6M12 8v6"
+                                stroke="currentColor"
+                                stroke-width="1.5"
+                                stroke-linecap="round"
+                            />
+                        </svg>
+                    </button>
+                    <button
+                        id="retry-btn"
+                        class="icon-btn"
+                        aria-label="Retry last request"
+                        title="Retry last request"
+                    >
+                        <svg
+                            width="20"
+                            height="20"
+                            viewBox="0 0 20 20"
+                            fill="none"
+                            aria-hidden="true"
+                        >
+                            <path
+                                d="M4 10a6 6 0 0110.33-4.08M16 10a6 6 0 01-10.33 4.08"
+                                stroke="currentColor"
+                                stroke-width="1.5"
+                                stroke-linecap="round"
+                            />
+                            <path
+                                d="M16 2v4h-4M4 18v-4h4"
+                                stroke="currentColor"
+                                stroke-width="1.5"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            />
+                        </svg>
+                    </button>
+                    <button
+                        id="theme-toggle"
+                        class="icon-btn"
+                        aria-label="Toggle theme"
+                    >
+                        <svg
+                            class="sun-icon"
+                            width="20"
+                            height="20"
+                            viewBox="0 0 20 20"
+                            fill="none"
+                            aria-hidden="true"
+                        >
+                            <circle
+                                cx="10"
+                                cy="10"
+                                r="4"
+                                stroke="currentColor"
+                                stroke-width="1.5"
+                            />
+                            <path
+                                d="M10 1v2M10 17v2M1 10h2M17 10h2M3.93 3.93l1.41 1.41M14.66 14.66l1.41 1.41M3.93 16.07l1.41-1.41M14.66 5.34l1.41-1.41"
+                                stroke="currentColor"
+                                stroke-width="1.5"
+                                stroke-linecap="round"
+                            />
+                        </svg>
+                        <svg
+                            class="moon-icon"
+                            width="20"
+                            height="20"
+                            viewBox="0 0 20 20"
+                            fill="none"
+                            aria-hidden="true"
+                        >
+                            <path
+                                d="M17 12.5A7.5 7.5 0 017.5 3 7.5 7.5 0 1017 12.5z"
+                                stroke="currentColor"
+                                stroke-width="1.5"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            />
+                        </svg>
+                    </button>
+                </div>
+            </header>
+
+            <div
+                id="connection-status"
+                class="connection-status"
+                role="status"
+                aria-live="polite"
+            >
+                <span class="status-dot" id="status-dot"></span>
+                <span id="status-text">Connected</span>
+            </div>
+
+            <div id="usage-panel" class="usage-panel hidden">
+                <button
+                    id="usage-panel-toggle"
+                    class="usage-panel-toggle"
+                    aria-expanded="false"
+                >
+                    <span class="usage-panel-icon">&#9654;</span>
+                    <span class="usage-panel-label">Show usage</span>
+                </button>
+                <div
+                    id="usage-panel-content"
+                    class="usage-panel-content hidden"
+                ></div>
+            </div>
+
+            <div id="reconnect-banner" class="reconnect-banner" role="alert">
+                <span>Connection lost. Reconnecting...</span>
+                <button id="reconnect-now" class="reconnect-now">Retry</button>
+            </div>
+
+            <main class="chat-container" id="chat-container">
+                <div class="messages" id="messages"></div>
+                <div class="welcome" id="welcome">
+                    <div class="welcome-icon">
+                        <svg
+                            class="logo-img"
+                            viewBox="0 0 120 120"
+                            width="120"
+                            height="120"
+                            xmlns="http://www.w3.org/2000/svg"
+                            aria-hidden="true"
+                        >
+                            <path
+                                d="M35 15 L15 15 L15 105 L35 105"
+                                stroke="currentColor"
+                                stroke-width="6"
+                                stroke-linecap="round"
+                                fill="none"
+                            />
+                            <path
+                                d="M85 15 L105 15 L105 105 L85 105"
+                                stroke="currentColor"
+                                stroke-width="6"
+                                stroke-linecap="round"
+                                fill="none"
+                            />
+                            <path
+                                d="M38 30 L82 30"
+                                stroke="currentColor"
+                                stroke-width="8"
+                                stroke-linecap="round"
+                            />
+                            <path
+                                d="M 60,30.147087 V 93.088825"
+                                stroke="currentColor"
+                                stroke-width="6"
+                                stroke-linecap="round"
+                            />
+                        </svg>
+                    </div>
+                    <h2>How can I help you today?</h2>
+                    <p class="welcome-sub">
+                        Ask me anything — I'm here to assist.
+                    </p>
+                    <div class="suggestions" id="suggestions"></div>
+                </div>
+                <div class="scroll-anchor" id="scroll-anchor"></div>
+            </main>
+
+            <footer class="input-area" id="input-area">
+                <div class="status-bar" id="status-bar">
+                    <div class="progress-bar" id="progress-bar">
+                        <div class="progress-text"></div>
+                        <div class="progress-track">
+                            <div class="progress-fill"></div>
+                        </div>
+                    </div>
+                    <div class="typing-indicator" id="typing-indicator">
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                    </div>
+                </div>
+                <div class="file-previews" id="file-previews"></div>
+                <div class="input-wrapper">
+                    <div class="attach-wrapper">
+                        <button
+                            id="attach-btn"
+                            class="icon-btn attach-btn"
+                            aria-label="Attach files"
+                            type="button"
+                        >
+                            <svg
+                                width="20"
+                                height="20"
+                                viewBox="0 0 20 20"
+                                fill="none"
+                                aria-hidden="true"
+                            >
+                                <path
+                                    d="M6 5v8a4 4 0 008 0V5a2.5 2.5 0 00-5 0v8a1 1 0 002 0V5"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                />
+                            </svg>
+                        </button>
+                    </div>
+                    <textarea
+                        id="user-input"
+                        class="input"
+                        placeholder="Type your message..."
+                        rows="1"
+                    ></textarea>
+                    <div class="input-actions">
+                        <button
+                            id="camera-btn"
+                            class="icon-btn input-icon-btn"
+                            aria-label="Take photo"
+                            type="button"
+                        >
+                            <svg
+                                width="20"
+                                height="20"
+                                viewBox="0 0 20 20"
+                                fill="none"
+                                aria-hidden="true"
+                            >
+                                <path
+                                    d="M3 6a2 2 0 012-2h1.5l1-1.5h5L13.5 4H15a2 2 0 012 2v7a2 2 0 01-2 2H5a2 2 0 01-2-2V6z"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                />
+                                <circle
+                                    cx="10"
+                                    cy="10"
+                                    r="2.5"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                />
+                            </svg>
+                        </button>
+                        <button
+                            id="audio-btn"
+                            class="icon-btn input-icon-btn"
+                            aria-label="Record audio"
+                            type="button"
+                        >
+                            <svg
+                                id="audio-icon"
+                                width="20"
+                                height="20"
+                                viewBox="0 0 20 20"
+                                fill="none"
+                                aria-hidden="true"
+                            >
+                                <rect
+                                    x="7"
+                                    y="1"
+                                    width="6"
+                                    height="12"
+                                    rx="3"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                />
+                                <path
+                                    d="M4 9a6 6 0 0012 0"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                    stroke-linecap="round"
+                                />
+                                <path
+                                    d="M10 17v2"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                    stroke-linecap="round"
+                                />
+                            </svg>
+                            <svg
+                                id="audio-rec-icon"
+                                class="audio-rec-icon"
+                                width="12"
+                                height="12"
+                                viewBox="0 0 12 12"
+                                fill="none"
+                                aria-hidden="true"
+                            >
+                                <rect
+                                    x="1"
+                                    y="1"
+                                    width="10"
+                                    height="10"
+                                    rx="2"
+                                    fill="var(--danger)"
+                                />
+                            </svg>
+                        </button>
+                        <button
+                            id="send-btn"
+                            class="send-btn"
+                            aria-label="Send message"
+                            disabled
+                        >
+                            <svg
+                                id="send-icon"
+                                width="20"
+                                height="20"
+                                viewBox="0 0 20 20"
+                                fill="none"
+                                aria-hidden="true"
+                            >
+                                <path
+                                    d="M2 10l16-8-8 16-2-6-6-2z"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                    stroke-linejoin="round"
+                                />
+                            </svg>
+                            <svg
+                                id="stop-icon"
+                                class="stop-icon"
+                                width="20"
+                                height="20"
+                                viewBox="0 0 20 20"
+                                fill="none"
+                                aria-hidden="true"
+                            >
+                                <rect
+                                    x="4"
+                                    y="4"
+                                    width="12"
+                                    height="12"
+                                    rx="2"
+                                    fill="currentColor"
+                                />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <p class="footer">
+                    Powered by
+                    <a
+                        href="https://github.com/smeso/tiz"
+                        class="footer-link"
+                        rel="noreferrer"
+                        >Tiz</a
+                    >
+                </p>
+            </footer>
+
+            <input
+                type="file"
+                id="file-input"
+                multiple
+                class="hidden-input"
+                accept="image/*,audio/*,video/*,.pdf,.txt,.doc,.docx,.csv,.json,.zip,.gz,.tar,.py,.js,.html,.css,.xml,.yaml,.yml,.md,.xlsx,.pptx"
+                aria-label="Choose files"
+            />
+            <input
+                type="file"
+                id="camera-input"
+                accept="image/*"
+                capture="environment"
+                class="hidden-input"
+                aria-label="Take a photo"
+            />
+        </div>
+
+        <script src="app.js"></script>
+    </body>
+</html>

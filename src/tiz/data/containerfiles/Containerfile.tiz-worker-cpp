@@ -1,0 +1,12 @@
+FROM tiz-worker
+
+USER root
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        ccache cmake build-essential pkg-config \
+        ninja-build cppcheck nasm yasm gawk \
+        clang-20 clang-tidy-20 clang-format-20 clang-tools-20 && \
+    echo "tiz-worker-cpp" > /etc/debian_chroot
+
+USER ubuntu

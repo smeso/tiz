@@ -1,0 +1,27 @@
+FROM tiz-worker
+
+USER root
+
+# v5.5.4
+ENV ESP_IDF_COMMIT=735507283d5b2f9fb363a1901172dbd9e847945d
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        git locales file wget ccache nano curl gpg jq \
+        bash-completion python3 minicom pkg-config libdbus-1-dev libglib2.0-dev \
+        flex bison gperf python3-pip python3-venv cmake ninja-build \
+        libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0 \
+        libffi-dev libssl-dev dfu-util libusb-1.0-0 minify && \
+    echo "tiz-worker-esp32" > /etc/debian_chroot && \
+    echo "pu port /dev/ttyACM0" >> /etc/minicom/minirc.dfl && \
+    echo ". /home/ubuntu/esp-idf/export.sh" > /etc/profile.d/99-esp-idf.sh
+
+USER ubuntu
+
+RUN git clone --recursive https://github.com/espressif/esp-idf.git && \
+    cd /home/ubuntu/esp-idf && \
+    git reset --hard "${ESP_IDF_COMMIT}" && \
+    git submodule update --init --recursive && \
+    ./install.sh all --enable-ci --enable-pytest \
+                     --enable-test-specific && \
+    python3 /home/ubuntu/esp-idf/tools/idf_tools.py install qemu-xtensa qemu-riscv32 esp-clang

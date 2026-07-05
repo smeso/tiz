@@ -1,0 +1,13 @@
+FROM tiz-worker
+
+USER root
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        build-essential pkg-config libssl-dev curl rustc cargo && \
+    echo "tiz-worker-rust" > /etc/debian_chroot
+
+USER ubuntu
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV CARGO_HOME /opt/shared/cargo

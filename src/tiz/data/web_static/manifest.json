@@ -1,0 +1,45 @@
+{
+    "name": "Tiz Chat",
+    "short_name": "Tiz",
+    "description": "AI-powered chatbot assistant",
+    "id": ".",
+    "start_url": ".",
+    "scope": ".",
+    "display": "standalone",
+    "display_override": ["standalone", "minimal-ui"],
+    "background_color": "#f5f5f7",
+    "theme_color": "#f5f5f7",
+    "orientation": "any",
+    "dir": "ltr",
+    "lang": "en",
+    "categories": ["productivity", "utilities"],
+    "launch_handler": {
+        "client_mode": "focus-existing"
+    },
+    "icons": [
+        {
+            "src": "favicon-192x192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any"
+        },
+        {
+            "src": "favicon-192x192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "maskable"
+        },
+        {
+            "src": "favicon-512x512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any"
+        },
+        {
+            "src": "favicon-512x512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
+    ]
+}

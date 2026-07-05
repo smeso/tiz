@@ -1,0 +1,2 @@
+version=4
+https://github.com/smeso/tiz/releases .*/(\d[\d.]*)\.tar\.gz

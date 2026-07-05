@@ -1,0 +1,39 @@
+Source: tiz
+Section: python
+Priority: optional
+Maintainer: Your Name <your.email@example.com>
+Build-Depends: debhelper-compat (= 13),
+               dh-python,
+               python3-all,
+               python3-setuptools,
+               python3-wheel,
+               python3-argparse-manpage,
+               python3-argcomplete,
+               python3-requests,
+               python3-jinja2,
+               python3-yaml,
+               python3-websockets,
+               python3-git
+Standards-Version: 4.6.2
+Homepage: https://github.com/smeso/tiz
+Rules-Requires-Root: no
+
+Package: tiz
+Architecture: all
+Depends: ${python3:Depends},
+         ${misc:Depends},
+         python3-requests,
+         python3-jinja2,
+         python3-yaml,
+         python3-git,
+         python3-argcomplete,
+         python3-websockets,
+         podman
+Suggests: python3-pyaudio,
+          python3-htmlmin,
+          python3-rjsmin
+Description: Agentic AI chatbot with sandboxed tool execution
+ tiz is a chatbot that uses large language models to execute
+ tasks in isolated sandbox environments using Podman containers.
+ It supports multiple AI inference engines, parallel execution,
+ and interactive chat sessions.

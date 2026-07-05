@@ -1,0 +1,18 @@
+FROM tiz-worker-py
+
+USER root
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        python3-git python3-yaml python3-jinja2 \
+        python3-argcomplete python3-argparse-manpage \
+        lintian devscripts debhelper dh-python \
+        python3-all shellcheck python3-websockets \
+        python3-htmlmin python3-rjsmin eslint npm \
+        podman && \
+    npm install -g stylelint@^16 stylelint-config-standard@^16 && \
+    npm install -g htmlhint && \
+    npm install -g prettier && \
+    echo "tiz-worker-tizdev" > /etc/debian_chroot
+
+USER ubuntu

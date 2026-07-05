@@ -1,0 +1,39 @@
+#!/usr/bin/make -f
+
+%:
+	PYBUILD_SYSTEM=distutils dh $@ --with python3 --buildsystem=pybuild
+
+override_dh_auto_build:
+	dh_auto_build
+	# Generate manpage
+	mkdir -p build/man
+	PYTHONPATH=src argparse-manpage \
+		--module tiz.cli \
+		--function get_parser \
+		--prog tiz \
+		--description "an agentic AI bot and much more" \
+		--output build/man/tiz.1
+	gzip -9n build/man/tiz.1
+	# Generate shell completions
+	mkdir -p build/completions/bash build/completions/zsh build/completions/fish
+	PYTHONPATH=src python3 -c \
+		"from tiz.autocomplete import shellcode; print(shellcode('bash'))" \
+		> build/completions/bash/tiz
+	PYTHONPATH=src python3 -c \
+		"from tiz.autocomplete import shellcode; print(shellcode('zsh'))" \
+		> build/completions/zsh/_tiz
+	PYTHONPATH=src python3 -c \
+		"from tiz.autocomplete import shellcode; print(shellcode('fish'))" \
+		> build/completions/fish/tiz.fish
+
+override_dh_install:
+	dh_install
+	# Install generated manpage and completions
+	install -D -m 644 build/man/tiz.1.gz \
+		$(CURDIR)/debian/tiz/usr/share/man/man1/tiz.1.gz
+	install -D -m 644 build/completions/bash/tiz \
+		$(CURDIR)/debian/tiz/usr/share/bash-completion/completions/tiz
+	install -D -m 644 build/completions/zsh/_tiz \
+		$(CURDIR)/debian/tiz/usr/share/zsh/vendor-completions/_tiz
+	install -D -m 644 build/completions/fish/tiz.fish \
+		$(CURDIR)/debian/tiz/usr/share/fish/vendor_completions.d/tiz.fish

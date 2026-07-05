@@ -1,0 +1,19 @@
+{
+  "env": {
+    "browser": true,
+    "es6": true,
+    "serviceworker": true
+  },
+  "extends": "eslint:recommended",
+  "parserOptions": {
+    "ecmaVersion": 2018
+  },
+  "rules": {
+    "no-unused-vars": ["warn", { "args": "none" }],
+    "no-undef": "error",
+    "no-constant-condition": "warn",
+    "no-empty": "warn",
+    "no-var": "error",
+    "prefer-const": "warn"
+  }
+}

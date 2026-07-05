@@ -1,0 +1,16 @@
+<svg viewBox="0 0 120 120" width="120" height="120"
+     xmlns="http://www.w3.org/2000/svg">
+  <title>Tiz</title>
+  <path d="M35 15 L15 15 L15 105 L35 105"
+        stroke="currentColor" stroke-width="6"
+        stroke-linecap="round" fill="none" />
+  <path d="M85 15 L105 15 L105 105 L85 105"
+        stroke="currentColor" stroke-width="6"
+        stroke-linecap="round" fill="none" />
+  <path d="M38 30 L82 30"
+        stroke="currentColor" stroke-width="6"
+        stroke-linecap="round" fill="none" />
+  <path d="M60 30 V93"
+        stroke="currentColor" stroke-width="6"
+        stroke-linecap="round" fill="none" />
+</svg>

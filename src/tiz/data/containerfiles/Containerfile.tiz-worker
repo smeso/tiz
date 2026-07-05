@@ -1,0 +1,26 @@
+FROM ubuntu:24.04
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        git locales file wget nano curl jq bash-completion \
+        python3 socat moreutils renameutils poppler-utils patchutils licenseutils \
+        elfutils diffutils coreutils bsdmainutils bsdutils python3-requests \
+        bsdextrautils binutils ffmpeg imagemagick unoconv ripgrep && \
+    rm /home/ubuntu/.bashrc && \
+    echo "tiz-worker" > /etc/debian_chroot && \
+    locale-gen en_US.UTF-8 && \
+    echo "PS1='\[\033[01;36m\]\${debian_chroot:+(\$debian_chroot) }\[\033[01;93m\]\u\[\033[01;34m\]\[\033[01;32m\]@\h\[\033[01;34m\] \w \\\$\[\033[m\] '" >> /etc/bash.bashrc && \
+    echo 'PS2="\[\033[01;34m\]>\[\033[m\] "' >> /etc/bash.bashrc
+
+ENV LANG en_US.UTF-8
+ENV LANGUAGE en_US:en
+ENV LC_ALL en_US.UTF-8
+
+USER ubuntu
+WORKDIR /home/ubuntu
+CMD "/bin/bash"
+
+RUN git config --global user.email "tiz@example.com" && git config --global user.name "Tiz"
+
+ENV XDG_CACHE_HOME=/opt/share/cache/
+ENV XDG_CONFIG_HOME=/opt/share/config/

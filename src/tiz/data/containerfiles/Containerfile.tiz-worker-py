@@ -1,0 +1,16 @@
+FROM tiz-worker
+
+USER root
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        python3-venv python3-pip mypy \
+        python3-pytest python3-pytest-cov flit && \
+    pip install --break-system-packages ruff uv && \
+    echo "tiz-worker-py" > /etc/debian_chroot
+
+USER ubuntu
+
+ENV UV_CACHE_DIR /opt/shared/uv_cache
+ENV UV_PYTHON_CACHE_DIR /opt/shared/uv_python_cache
+ENV UV_PYTHON_INSTALL_DIR /opt/shared/uv_python

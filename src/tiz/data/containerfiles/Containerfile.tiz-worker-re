@@ -1,0 +1,37 @@
+FROM tiz-worker-py
+
+USER root
+
+ENV JADX_VERSION=1.5.5
+ENV GHIDRA_VERSION=12.1.2
+ENV GHIDRA_TIMECODE=20260605
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        apktool libsmali-java unzip radare2 binutils xxd \
+        openjdk-21-jdk python3-capstone binutils-arm-none-eabi \
+        binutils-avr binutils-riscv64-unknown-elf \
+        capstone-tool binwalk python3-binwalk && \
+    echo "tiz-worker-reveng" > /etc/debian_chroot
+
+RUN JADX_URL="https://github.com/skylot/jadx/releases/download/v${JADX_VERSION}/jadx-${JADX_VERSION}.zip" && \
+    curl -fsSL "$JADX_URL" -o /tmp/jadx.zip && \
+    mkdir -p /opt/jadx/bin && \
+    unzip -q /tmp/jadx.zip -d /tmp/jadx-extract && \
+    mv /tmp/jadx-extract/bin/* /opt/jadx/bin/ && \
+    mv /tmp/jadx-extract/lib /opt/jadx/ && \
+    chmod +x /opt/jadx/bin/jadx /opt/jadx/bin/jadx-gui && \
+    rm -rf /tmp/jadx.zip /tmp/jadx-extract && \
+    echo 'export PATH="/opt/jadx/bin:$PATH"' > /etc/profile.d/jadx.sh && \
+    chmod +x /etc/profile.d/jadx.sh
+
+RUN GHIDRA_URL="https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_${GHIDRA_VERSION}_build/ghidra_${GHIDRA_VERSION}_PUBLIC_${GHIDRA_TIMECODE}.zip" && \
+    curl -fsSL "$GHIDRA_URL" -o /tmp/ghidra.zip && \
+    mkdir -p /opt/ghidra && \
+    unzip -q /tmp/ghidra.zip -d /tmp/ghidra-extract && \
+    mv /tmp/ghidra-extract/ghidra_${GHIDRA_VERSION}_PUBLIC/* /opt/ghidra/ && \
+    rm -rf /tmp/ghidra.zip /tmp/ghidra-extract && \
+    echo 'export PATH="/opt/ghidra/support:$PATH"' > /etc/profile.d/ghidra.sh && \
+    chmod +x /etc/profile.d/ghidra.sh
+
+USER ubuntu

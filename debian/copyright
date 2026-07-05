@@ -1,0 +1,11 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: tiz
+Source: https://github.com/smeso/tiz
+
+Files: *
+Copyright: 2024 smeso
+License: Apache-2.0
+
+License: Apache-2.0
+ On Debian systems, the full text of the Apache-2.0 license can be found at
+ /usr/share/common-licenses/Apache-2.0.
