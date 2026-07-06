@@ -24,11 +24,15 @@ from urllib.parse import urlparse
 
 import requests
 
+from tiz import __version__
 from tiz.log import get_logger
 
 logger = get_logger(__name__)
 
-USER_AGENT = "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; tiz/0.1.0; +https://github.com/smeso/tiz"
+USER_AGENT = (
+    f"Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko);"
+    f" compatible; tiz/{__version__}; +https://github.com/smeso/tiz"
+)
 
 OPENROUTER_REFERER = "https://github.com/smeso/tiz"
 OPENROUTER_APP_TITLE = "tiz"

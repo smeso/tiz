@@ -109,8 +109,10 @@ class TestWhisperCppInit:
         assert client._sampling_params == {}
         assert client._language is None
         assert client._prompt is None
+        from tiz.inference_clients import USER_AGENT
+
         assert client.headers == {
-            "User-Agent": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; tiz/0.1.0; +https://github.com/smeso/tiz",
+            "User-Agent": USER_AGENT,
         }
 
     def test_strips_trailing_slash(self):
