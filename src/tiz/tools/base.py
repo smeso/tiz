@@ -71,7 +71,9 @@ class SocketTool(Tool):
                 return "ERROR: tool communication failed: invalid socket permissions"
             sock.settimeout(5)
             sock.connect(self.socket_path)
-            sock.settimeout(600)
+            timeout = params.get("timeout", 300)
+            socket_timeout = max(3, min(600, timeout * 2))
+            sock.settimeout(socket_timeout)
             length_prefix = struct.pack(">I", len(encoded))
             sock.sendall(length_prefix + encoded)
             length_data = b""

@@ -509,6 +509,148 @@ def test_socket_tool_init_forwards_kwargs(socket_path: str) -> None:
     assert tool.socket_path == socket_path
 
 
+class TestSocketTimeout:
+    """Tests for socket timeout calculation in _call."""
+
+    def test_socket_timeout_default(self, socket_path: str) -> None:
+        """No timeout in params: default timeout 300 -> socket timeout 600."""
+        tool = ConcreteSocketTool(socket_path)
+        result_json = json.dumps({"result": "ok", "error": False})
+        resp_data = result_json.encode("utf-8") + b"\n"
+
+        mock_sock = MagicMock()
+        mock_sock.recv.side_effect = [
+            struct.pack(">I", len(resp_data)),
+            resp_data,
+        ]
+
+        with (
+            patch("socket.socket", return_value=mock_sock),
+            patch.object(Path, "stat") as mock_stat,
+        ):
+            mock_stat.return_value.st_mode = 0o100600
+            result = tool.run({})
+
+        assert result == "ok"
+        # Default timeout 300 -> socket_timeout = max(3, min(600, 300*2)) = 600
+        assert mock_sock.settimeout.call_args_list[0][0][0] == 5  # connect timeout
+        assert mock_sock.settimeout.call_args_list[1][0][0] == 600  # read timeout
+
+    def test_socket_timeout_from_params(self, socket_path: str) -> None:
+        """Timeout from params: 30 -> socket timeout 60."""
+        tool = ConcreteSocketTool(socket_path)
+        result_json = json.dumps({"result": "ok", "error": False})
+        resp_data = result_json.encode("utf-8") + b"\n"
+
+        mock_sock = MagicMock()
+        mock_sock.recv.side_effect = [
+            struct.pack(">I", len(resp_data)),
+            resp_data,
+        ]
+
+        with (
+            patch("socket.socket", return_value=mock_sock),
+            patch.object(Path, "stat") as mock_stat,
+        ):
+            mock_stat.return_value.st_mode = 0o100600
+            result = tool.run({"timeout": 30})
+
+        assert result == "ok"
+        # timeout 30 -> socket_timeout = max(3, min(600, 30*2)) = 60
+        assert mock_sock.settimeout.call_args_list[1][0][0] == 60
+
+    def test_socket_timeout_minimum(self, socket_path: str) -> None:
+        """Very small timeout clamped to minimum of 3."""
+        tool = ConcreteSocketTool(socket_path)
+        result_json = json.dumps({"result": "ok", "error": False})
+        resp_data = result_json.encode("utf-8") + b"\n"
+
+        mock_sock = MagicMock()
+        mock_sock.recv.side_effect = [
+            struct.pack(">I", len(resp_data)),
+            resp_data,
+        ]
+
+        with (
+            patch("socket.socket", return_value=mock_sock),
+            patch.object(Path, "stat") as mock_stat,
+        ):
+            mock_stat.return_value.st_mode = 0o100600
+            result = tool.run({"timeout": 1})
+
+        assert result == "ok"
+        # timeout 1 -> socket_timeout = max(3, min(600, 1*2)) = max(3, 2) = 3
+        assert mock_sock.settimeout.call_args_list[1][0][0] == 3
+
+    def test_socket_timeout_maximum(self, socket_path: str) -> None:
+        """Very large timeout clamped to maximum of 600."""
+        tool = ConcreteSocketTool(socket_path)
+        result_json = json.dumps({"result": "ok", "error": False})
+        resp_data = result_json.encode("utf-8") + b"\n"
+
+        mock_sock = MagicMock()
+        mock_sock.recv.side_effect = [
+            struct.pack(">I", len(resp_data)),
+            resp_data,
+        ]
+
+        with (
+            patch("socket.socket", return_value=mock_sock),
+            patch.object(Path, "stat") as mock_stat,
+        ):
+            mock_stat.return_value.st_mode = 0o100600
+            result = tool.run({"timeout": 600})
+
+        assert result == "ok"
+        # timeout 600 -> socket_timeout = max(3, min(600, 600*2)) = max(3, 600) = 600
+        assert mock_sock.settimeout.call_args_list[1][0][0] == 600
+
+    def test_socket_timeout_at_minimum_edge(self, socket_path: str) -> None:
+        """timeout=2 gives socket_timeout = max(3, min(600, 4)) = 4 (no clamping)."""
+        tool = ConcreteSocketTool(socket_path)
+        result_json = json.dumps({"result": "ok", "error": False})
+        resp_data = result_json.encode("utf-8") + b"\n"
+
+        mock_sock = MagicMock()
+        mock_sock.recv.side_effect = [
+            struct.pack(">I", len(resp_data)),
+            resp_data,
+        ]
+
+        with (
+            patch("socket.socket", return_value=mock_sock),
+            patch.object(Path, "stat") as mock_stat,
+        ):
+            mock_stat.return_value.st_mode = 0o100600
+            result = tool.run({"timeout": 2})
+
+        assert result == "ok"
+        # timeout 2 -> socket_timeout = max(3, min(600, 2*2)) = max(3, 4) = 4
+        assert mock_sock.settimeout.call_args_list[1][0][0] == 4
+
+    def test_socket_timeout_at_threshold_below_min(self, socket_path: str) -> None:
+        """timeout=1 gives socket_timeout = max(3, min(600, 2)) = 3 (clamped minimum)."""
+        tool = ConcreteSocketTool(socket_path)
+        result_json = json.dumps({"result": "ok", "error": False})
+        resp_data = result_json.encode("utf-8") + b"\n"
+
+        mock_sock = MagicMock()
+        mock_sock.recv.side_effect = [
+            struct.pack(">I", len(resp_data)),
+            resp_data,
+        ]
+
+        with (
+            patch("socket.socket", return_value=mock_sock),
+            patch.object(Path, "stat") as mock_stat,
+        ):
+            mock_stat.return_value.st_mode = 0o100600
+            result = tool.run({"timeout": 1})
+
+        assert result == "ok"
+        assert mock_sock.settimeout.call_args_list[1][0][0] == 3
+
+
 def test_concrete_tool_format_confirmation() -> None:
     """Test format_confirmation on a concrete Tool subclass."""
     tool = ConcreteTool()
