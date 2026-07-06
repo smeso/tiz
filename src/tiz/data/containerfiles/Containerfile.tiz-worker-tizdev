@@ -8,11 +8,12 @@ RUN apt-get update && \
         python3-argcomplete python3-argparse-manpage \
         lintian devscripts debhelper dh-python \
         python3-all shellcheck python3-websockets \
-        python3-htmlmin python3-rjsmin eslint npm \
+        python3-htmlmin python3-rjsmin npm \
         podman && \
     npm install -g stylelint@^16 stylelint-config-standard@^16 && \
     npm install -g htmlhint && \
     npm install -g prettier && \
+    npm install -g eslint && \
     echo "tiz-worker-tizdev" > /etc/debian_chroot
 
 USER ubuntu
