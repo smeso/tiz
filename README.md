@@ -35,6 +35,24 @@ somewhere else it's purely by accident and you are on your own.
 This README.md file was written by a human. If it doesn't look like that to you,
 your clanker-detector is broken.
 
+## Table of Contents
+
+- [Features](#features)
+- [Install](#install)
+- [How to use](#how-to-use)
+  - [Manifest files](#manifest-files)
+    - [Regular manifest](#regular-manifest)
+    - [Iterator manifest](#iterator-manifest)
+    - [Scoring manifest](#scoring-manifest)
+    - [Chat manifest](#chat-manifest)
+    - [Web manifest (with audio inference)](#web-manifest-with-audio-inference)
+- [Known issues, limitations and questionable choices](#known-issues-limitations-and-questionable-choices)
+- [How I Did it](#how-i-did-it)
+- [Stuff made using Tiz](#stuff-made-using-tiz)
+- [Contributing](#contributing)
+- [AI usage policy](#ai-usage-policy)
+- [License](#license)
+
 Features
 ========
 
