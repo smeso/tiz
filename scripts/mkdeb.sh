@@ -78,8 +78,8 @@ expected_files+=( "/usr/share/fish/vendor_completions.d/tiz.fish" )
 # Console script entry point (from pyproject.toml)
 expected_files+=( "/usr/bin/tiz" )
 
-# Documentation (from debian/tiz.docs)
-expected_files+=( "/usr/share/doc/tiz/README.md" )
+# Documentation (from debian/tiz.docs) - dh_installdocs compresses with gzip
+expected_files+=( "/usr/share/doc/tiz/README.md.gz" )
 
 # Check that every expected file is present in the deb.
 missing=()
