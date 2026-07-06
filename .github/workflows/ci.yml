@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 env:
   PYTHON_VERSION: "3.11"
@@ -91,3 +92,137 @@ jobs:
           npm install -g eslint stylelint htmlhint prettier
       - name: Run web linters
         run: ./scripts/web_checks.sh
+
+  signed-off-by:
+    name: Check Signed-off-by
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify all commits have Signed-off-by
+        run: |
+          set -euo pipefail
+          case "${{ github.event_name }}" in
+            pull_request)
+              range="origin/${{ github.base_ref }}..${{ github.event.pull_request.head.sha }}"
+              ;;
+            push)
+              before="${{ github.event.before }}"
+              after="${{ github.event.after }}"
+              if [ "$before" = "0000000000000000000000000000000000000000" ]; then
+                # First push to a branch – check all commits reachable
+                range="--root..$after"
+              else
+                range="$before..$after"
+              fi
+              ;;
+            workflow_dispatch)
+              range="HEAD~10..HEAD"
+              ;;
+            *)
+              echo "Unsupported event: ${{ github.event_name }}"
+              exit 1
+              ;;
+          esac
+          echo "Checking commits in range: $range"
+          missing=0
+          while IFS= read -r hash; do
+            msg=$(git log --format="%B" -1 "$hash")
+            if ! echo "$msg" | grep -q "^Signed-off-by:"; then
+              echo "::error::Commit $hash is missing Signed-off-by trailer"
+              missing=$((missing + 1))
+            fi
+          done < <(git rev-list "$range")
+          if [ "$missing" -gt 0 ]; then
+            exit 1
+          fi
+          echo "All commits have Signed-off-by."
+
+  semi-linear-history:
+    name: Check semi-linear history
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify no octopus merges in the changeset
+        run: |
+          set -euo pipefail
+          case "${{ github.event_name }}" in
+            pull_request)
+              range="origin/${{ github.base_ref }}..${{ github.event.pull_request.head.sha }}"
+              ;;
+            push)
+              before="${{ github.event.before }}"
+              after="${{ github.event.after }}"
+              if [ "$before" = "0000000000000000000000000000000000000000" ]; then
+                range="--root..$after"
+              else
+                range="$before..$after"
+              fi
+              ;;
+            workflow_dispatch)
+              range="HEAD~10..HEAD"
+              ;;
+            *)
+              echo "Unsupported event: ${{ github.event_name }}"
+              exit 1
+              ;;
+          esac
+          echo "Checking commits in range: $range"
+          errors=0
+          while IFS= read -r line; do
+            set -- $line
+            commit=$1
+            parents=$#
+            if [ "$parents" -gt 3 ]; then
+              echo "::error::Commit $commit has $((parents - 1)) parents (octopus merge)"
+              errors=$((errors + 1))
+            fi
+          done < <(git rev-list --parents "$range")
+          if [ "$errors" -gt 0 ]; then
+            exit 1
+          fi
+          echo "History is semi-linear (merge commits allowed, no octopus merges detected)."
+
+  build-pypi:
+    name: Build PyPI packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
+      - name: Build sdist and wheel
+        run: python -m build
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pypi-packages
+          path: dist/
+
+  build-deb:
+    name: Build Debian package
+    runs-on: ubuntu-latest
+    needs: [build-pypi]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Debian packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y debhelper-compat dh-python python3-all \
+            python3-setuptools python3-wheel python3-argparse-manpage \
+            python3-argcomplete python3-requests python3-jinja2 \
+            python3-yaml python3-websockets python3-git lintian
+      - name: Build .deb package
+        run: ./scripts/mkdeb.sh
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-package
+          path: tiz_*.deb
