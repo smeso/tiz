@@ -108,7 +108,7 @@ echo "All expected files are present."
 echo ""
 echo "=== Lintian package check ==="
 lintian --info --display-experimental --pedantic \
-    "$deb_file" 2>&1 || true
+    "$deb_file" 2>&1
 
 echo ""
 echo "OK: Debian package built successfully."
