@@ -218,7 +218,8 @@ jobs:
           sudo apt-get install -y debhelper-compat dh-python python3-all \
             python3-setuptools python3-wheel python3-argparse-manpage \
             python3-argcomplete python3-requests python3-jinja2 \
-            python3-yaml python3-websockets python3-git lintian
+            python3-yaml python3-websockets python3-git lintian \
+            build-essential
       - name: Build .deb package
         run: ./scripts/mkdeb.sh
       - name: Upload .deb artifact
