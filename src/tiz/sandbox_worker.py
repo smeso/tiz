@@ -390,6 +390,8 @@ def _tool_grep(params: dict[str, Any]) -> tuple[str, bool]:
             cmd = ["grep", "-rn", "--color=never", "-m", str(max_results)]
             if not use_regex:
                 cmd.append("-F")
+            else:
+                cmd.append("-P")
             if params.get("case_insensitive"):
                 cmd.append("-i")
             cmd += ["--", pattern, str(resolved)]
