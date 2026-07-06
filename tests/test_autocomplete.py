@@ -206,7 +206,7 @@ def test_image_tag_completer_returns_matching_tags(tmp_path):
     ):
         result = _image_tag_completer("tiz-worker-js", parsed)
 
-    assert result == ["tiz-worker-js:latest"]
+    assert result == ["tiz-worker-js"]
 
 
 def test_image_tag_completer_no_match(tmp_path):
@@ -243,7 +243,7 @@ def test_image_tag_completer_empty_prefix(tmp_path):
     ):
         result = _image_tag_completer("", parsed)
 
-    assert result == ["tiz-worker-js:latest", "tiz-worker-py:latest"]
+    assert result == ["tiz-worker-js", "tiz-worker-py"]
 
 
 def test_image_tag_completer_no_config_dir_attr(tmp_path):
@@ -263,7 +263,7 @@ def test_image_tag_completer_no_config_dir_attr(tmp_path):
     ):
         result = _image_tag_completer("", parsed)
 
-    assert result == ["tiz-worker-js:latest"]
+    assert result == ["tiz-worker-js"]
 
 
 def test_image_tag_completer_config_dir_as_str(tmp_path):
@@ -281,7 +281,7 @@ def test_image_tag_completer_config_dir_as_str(tmp_path):
     ):
         result = _image_tag_completer("", parsed)
 
-    assert result == ["tiz-worker-js:latest"]
+    assert result == ["tiz-worker-js"]
 
 
 def test_image_tag_completer_config_dir_none(tmp_path):
@@ -302,7 +302,7 @@ def test_image_tag_completer_config_dir_none(tmp_path):
     ):
         result = _image_tag_completer("", parsed)
 
-    assert result == ["tiz-worker-js:latest"]
+    assert result == ["tiz-worker-js"]
 
 
 def test_image_tag_completer_empty_dirs():
@@ -354,7 +354,7 @@ def test_image_tag_completer_returns_sorted(tmp_path):
     ):
         result = _image_tag_completer("", parsed)
 
-    assert result == ["tiz-worker-js:latest", "tiz-worker-py:latest"]
+    assert result == ["tiz-worker-js", "tiz-worker-py"]
 
 
 def test_image_tag_completer_exception_returns_empty():
@@ -388,7 +388,7 @@ def test_image_tag_completer_non_containerfile_skipped(tmp_path):
     ):
         result = _image_tag_completer("", parsed)
 
-    assert result == ["tiz-worker-js:latest"]
+    assert result == ["tiz-worker-js"]
 
 
 def test_image_tag_completer_skips_directories(tmp_path):
@@ -407,7 +407,7 @@ def test_image_tag_completer_skips_directories(tmp_path):
     ):
         result = _image_tag_completer("", parsed)
 
-    assert result == ["tiz-worker-js:latest"]
+    assert result == ["tiz-worker-js"]
 
 
 def test_image_tag_completer_skips_empty_suffix(tmp_path):
@@ -426,7 +426,7 @@ def test_image_tag_completer_skips_empty_suffix(tmp_path):
     ):
         result = _image_tag_completer("", parsed)
 
-    assert result == ["valid:latest"]
+    assert result == ["valid"]
 
 
 def test_image_tag_completer_calls_get_containerfiles_dirs(tmp_path):

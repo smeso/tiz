@@ -72,9 +72,8 @@ def _image_tag_completer(
                     name = child.name[len("Containerfile.") :]
                     if not name:
                         continue
-                    tag = f"{name}:latest"
-                    if tag.startswith(prefix):
-                        tags.append(tag)
+                    if name.startswith(prefix):
+                        tags.append(name)
         return sorted(set(tags))
     except Exception:
         return []

@@ -532,12 +532,11 @@ class SandboxManager:
             cmd.extend(["-t", tag, tmpdir])
             result = subprocess.run(
                 cmd,
-                capture_output=True,
                 text=True,
                 check=False,
             )
             if result.returncode != 0:
-                raise RuntimeError(f"Failed to build image: {result.stderr.strip()}")
+                raise RuntimeError("Failed to build image")
 
     def build_image(
         self,
