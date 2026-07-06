@@ -131,8 +131,7 @@ Features, in no particular order:
 * **Subagents**: A task can spawn subagents that run in their own
   containers, each with their own system prompt, tools, and inference
   engine. Results are returned to the parent agent. Subagents cannot have
-  subagents to avoid the [Mr. Meeseeks recursion problem]
-  (https://en.wikipedia.org/wiki/Meeseeks_and_Destroy#Plot).
+  subagents to avoid the [Mr. Meeseeks recursion problem](https://en.wikipedia.org/wiki/Meeseeks_and_Destroy#Plot).
 
 * **Parallel execution**: Multiple tasks can run in parallel using thread
   pools. Actions within a task can also be parallelized.
