@@ -80,7 +80,7 @@ def test_control_section():
 
 def test_control_maintainer():
     content = _read("debian/control")
-    assert "Maintainer: Your Name <your.email@example.com>" in content
+    assert "Maintainer: Salvatore Mesoraca <s.mesoraca16@gmail.com>" in content
 
 
 def test_control_build_depends():

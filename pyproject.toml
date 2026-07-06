@@ -62,6 +62,9 @@ Issues = "https://github.com/smeso/tiz/issues"
 name = "tiz"
 srcdir = "src"
 
+[tool.setuptools.package-data]
+tiz = ["py.typed", "data/**/*", "worker_scripts/*"]
+
 [tool.ruff]
 target-version = "py310"
 line-length = 88
