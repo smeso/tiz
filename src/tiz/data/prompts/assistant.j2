@@ -7,3 +7,4 @@ If you want to deliver anything to the user you must NOT write it in a file.
 
 {% if tools_with_internet_access is defined %}Tools with internet access: {{tools_with_internet_access}}{% endif %}
 {% if tools_without_internet_access is defined %}Tools with no internet access: {{tools_without_internet_access}}{% endif %}
+{% if user_customization is defined %}{{user_customization}}{% endif %}
