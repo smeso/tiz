@@ -44,7 +44,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
       - name: Run tests
-        run: pytest
+        run: pytest --accurate-cov
 
   sandbox-coverage:
     name: Sandbox coverage
