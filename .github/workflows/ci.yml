@@ -94,6 +94,14 @@ jobs:
       - name: Run web linters
         run: ./scripts/web_checks.sh
 
+  check-versions:
+    name: Check version consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run version consistency check
+        run: ./scripts/check_versions.sh
+
   signed-off-by:
     name: Check Signed-off-by
     runs-on: ubuntu-latest
