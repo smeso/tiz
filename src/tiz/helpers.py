@@ -21,6 +21,10 @@ from tiz.manifest_parser import (
     PromptsAction,
     merge,
 )
+from tiz.sandbox_dirs import (
+    TIZ_COMMIT_AUTHOR_EMAIL,
+    TIZ_COMMIT_AUTHOR_NAME,
+)
 from tiz.sandbox_manager import SandboxManager
 
 logger = get_logger(__name__)
@@ -99,6 +103,8 @@ def exec_cmd(
             sandbox_name=sandbox_name,
             project_path=task.project or None,
             force_copy_files=task.force_copy_files or None,
+            committer_name=manifest.meta.committer_name or TIZ_COMMIT_AUTHOR_NAME,
+            committer_email=manifest.meta.committer_email or TIZ_COMMIT_AUTHOR_EMAIL,
         )
     except Exception as exc:
         return (

@@ -1261,6 +1261,8 @@ def _make_manifest(tasks: list[MagicMock] | None = None) -> MagicMock:
     manifest.meta.container_engine = None
     manifest.meta.verbosity = 0
     manifest.meta.use_host_timezone = True
+    manifest.meta.committer_name = None
+    manifest.meta.committer_email = None
     return manifest
 
 
@@ -1312,6 +1314,8 @@ def test_exec_cmd_sandbox_create_error(tmp_path: Path, monkeypatch: Any) -> None
         sandbox_name="my_task",
         project_path=None,
         force_copy_files=None,
+        committer_name="Tiz",
+        committer_email="tiz@example.com",
     )
 
 
@@ -1386,6 +1390,8 @@ def test_exec_cmd_success(tmp_path: Path, monkeypatch: Any) -> None:
         sandbox_name="my_task",
         project_path=None,
         force_copy_files=None,
+        committer_name="Tiz",
+        committer_email="tiz@example.com",
     )
     mock_manager.create_container.assert_called_once_with(
         sandbox_name="my_task",
@@ -1427,6 +1433,8 @@ def test_exec_cmd_success_default_task(tmp_path: Path, monkeypatch: Any) -> None
         sandbox_name="first_task",
         project_path=None,
         force_copy_files=None,
+        committer_name="Tiz",
+        committer_email="tiz@example.com",
     )
     popen.assert_called_once_with(
         ["docker", "exec", "-it", "def456", "/bin/bash", "-l"]
@@ -1468,6 +1476,8 @@ def test_exec_cmd_success_with_project_and_force_copy(
         sandbox_name="my_task",
         project_path="/some/project",
         force_copy_files=["file1.txt", "file2.txt"],
+        committer_name="Tiz",
+        committer_email="tiz@example.com",
     )
     mock_manager.create_container.assert_called_once_with(
         sandbox_name="my_task",
@@ -1514,6 +1524,8 @@ def test_exec_cmd_success_with_project_no_force_copy(
         sandbox_name="my_task",
         project_path="/some/project",
         force_copy_files=None,
+        committer_name="Tiz",
+        committer_email="tiz@example.com",
     )
     mock_container.stop.assert_called_once_with(timeout=0)
 
@@ -1605,6 +1617,8 @@ def test_exec_cmd_task_name_whitespace(tmp_path: Path, monkeypatch: Any) -> None
         sandbox_name="my_complex_task",
         project_path=None,
         force_copy_files=None,
+        committer_name="Tiz",
+        committer_email="tiz@example.com",
     )
     mock_container.stop.assert_called_once_with(timeout=0)
 
