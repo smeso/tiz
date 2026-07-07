@@ -94,6 +94,16 @@ jobs:
       - name: Run web linters
         run: ./scripts/web_checks.sh
 
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Run shellcheck on all scripts
+        run: shellcheck scripts/*.sh
+
   check-versions:
     name: Check version consistency
     runs-on: ubuntu-latest
