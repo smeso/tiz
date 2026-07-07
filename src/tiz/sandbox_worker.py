@@ -31,9 +31,10 @@ _HAS_RG: bool | None = None
 _TOOL_LOCK = threading.Lock()
 _MAX_LIST_DIR_ENTRIES = 1000
 _CUSTOM_TOOLS_DIR = Path(os.environ.get("TIZ_CUSTOM_TOOLS_DIR", "/opt/tiz_tools"))
+_TIZ_VERSION = "0.1.0"
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko);"
-    " compatible; tiz/0.1.0; +https://github.com/smeso/tiz"
+    f" compatible; tiz/{_TIZ_VERSION}; +https://github.com/smeso/tiz"
 )
 
 _WEBFETCH_CACHE: OrderedDict[str, tuple[int, dict[str, str], str]] = OrderedDict()
