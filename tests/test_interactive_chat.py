@@ -1508,10 +1508,10 @@ def test_interactive_chat_record_tempfile_error(monkeypatch: Any, capsys: Any) -
     assert "Error: cannot create temp file" in captured.out
 
 
-def test_interactive_chat_sync_to_with_manager(
+def test_interactive_chat_sync_to_with_sandbox(
     monkeypatch: Any, capsys: Any, tmp_path: Path
 ) -> None:
-    """Test /sync-to command with manager available."""
+    """Test /sync-to command with sandbox available."""
     _mock_manifest(monkeypatch)
     manifest = _make_minimal_manifest()
     inputs = _to_inputs("/sync-to", "/quit")
@@ -1543,15 +1543,15 @@ def test_interactive_chat_sync_to_with_manager(
     )
     chat.run()
 
-    mock_manager.sync_to_original.assert_called_once_with("test-sandbox")
+    mock_sandbox.sync_to_original.assert_called_once_with()
     captured = capsys.readouterr()
     assert "Synced sandbox changes to original project." in captured.out
 
 
-def test_interactive_chat_sync_to_no_manager(
+def test_interactive_chat_sync_to_no_sandbox(
     monkeypatch: Any, capsys: Any, tmp_path: Path
 ) -> None:
-    """Test /sync-to command when manager is None."""
+    """Test /sync-to command when sandbox is None."""
     _mock_manifest(monkeypatch)
     manifest = _make_minimal_manifest()
     inputs = _to_inputs("/sync-to", "/quit")
@@ -1568,10 +1568,10 @@ def test_interactive_chat_sync_to_no_manager(
     assert "No sandbox to sync from." in captured.out
 
 
-def test_interactive_chat_sync_from_with_manager(
+def test_interactive_chat_sync_from_with_sandbox(
     monkeypatch: Any, capsys: Any, tmp_path: Path
 ) -> None:
-    """Test /sync-from command with manager available."""
+    """Test /sync-from command with sandbox available."""
     _mock_manifest(monkeypatch)
     manifest = _make_minimal_manifest()
     inputs = _to_inputs("/sync-from", "/quit")
@@ -1603,15 +1603,15 @@ def test_interactive_chat_sync_from_with_manager(
     )
     chat.run()
 
-    mock_manager.sync_from_original.assert_called_once_with("test-sandbox")
+    mock_sandbox.sync_from_original.assert_called_once_with()
     captured = capsys.readouterr()
     assert "Synced original project changes to sandbox." in captured.out
 
 
-def test_interactive_chat_sync_from_no_manager(
+def test_interactive_chat_sync_from_no_sandbox(
     monkeypatch: Any, capsys: Any, tmp_path: Path
 ) -> None:
-    """Test /sync-from command when manager is None."""
+    """Test /sync-from command when sandbox is None."""
     _mock_manifest(monkeypatch)
     manifest = _make_minimal_manifest()
     inputs = _to_inputs("/sync-from", "/quit")

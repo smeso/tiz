@@ -261,16 +261,16 @@ class InteractiveChat(BaseTaskExecutor):
         return True
 
     def _handle_sync_to(self, _raw: dict[str, str]) -> bool:
-        if self._manager is not None and self._sandbox_name is not None:
-            self._manager.sync_to_original(self._sandbox_name)
+        if self._sandbox is not None:
+            self._sandbox.sync_to_original()
             self._feedback("Synced sandbox changes to original project.")
         else:
             self._feedback("No sandbox to sync from.")
         return True
 
     def _handle_sync_from(self, _raw: dict[str, str]) -> bool:
-        if self._manager is not None and self._sandbox_name is not None:
-            self._manager.sync_from_original(self._sandbox_name)
+        if self._sandbox is not None:
+            self._sandbox.sync_from_original()
             self._feedback("Synced original project changes to sandbox.")
         else:
             self._feedback("No sandbox to sync to.")
