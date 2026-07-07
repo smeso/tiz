@@ -109,6 +109,7 @@ class TestWhisperCppInit:
         assert client._sampling_params == {}
         assert client._language is None
         assert client._prompt is None
+        assert client.max_retries == 3
         from tiz.inference_clients import USER_AGENT
 
         assert client.headers == {
@@ -322,8 +323,9 @@ class TestTranscribe:
         with pytest.raises(RuntimeError, match="missing.*text"):
             client.transcribe(b"audio")
 
+    @patch("tiz.audio_inference_clients.time.sleep")
     @patch("tiz.audio_inference_clients.requests.post")
-    def test_http_error(self, mock_post):
+    def test_http_error(self, mock_post, mock_sleep):
         mock_resp = MagicMock()
         mock_resp.raise_for_status.side_effect = requests.HTTPError("403 Forbidden")
         mock_post.return_value = mock_resp
@@ -331,22 +333,27 @@ class TestTranscribe:
         client = WhisperCpp()
         with pytest.raises(RuntimeError, match="WhisperCpp request failed"):
             client.transcribe(b"audio")
+        mock_sleep.assert_not_called()
 
+    @patch("tiz.audio_inference_clients.time.sleep")
     @patch("tiz.audio_inference_clients.requests.post")
-    def test_connection_error(self, mock_post):
+    def test_connection_error(self, mock_post, mock_sleep):
         mock_post.side_effect = requests.exceptions.ConnectionError("connection failed")
 
         client = WhisperCpp()
         with pytest.raises(RuntimeError, match="WhisperCpp request failed"):
             client.transcribe(b"audio")
+        assert mock_sleep.call_count == 3
 
+    @patch("tiz.audio_inference_clients.time.sleep")
     @patch("tiz.audio_inference_clients.requests.post")
-    def test_timeout_error(self, mock_post):
+    def test_timeout_error(self, mock_post, mock_sleep):
         mock_post.side_effect = requests.exceptions.Timeout("timed out")
 
         client = WhisperCpp()
         with pytest.raises(RuntimeError, match="WhisperCpp request failed"):
             client.transcribe(b"audio")
+        assert mock_sleep.call_count == 3
 
     @patch("tiz.audio_inference_clients.requests.post")
     def test_json_decode_error(self, mock_post):
@@ -434,3 +441,304 @@ class TestWhisperCppHostValidation:
     def test_rejects_empty_host(self):
         with pytest.raises(ValueError, match="Invalid host URL"):
             WhisperCpp(host="")
+
+
+class TestBackoffDelay:
+    def test_backoff_delay_returns_float(self):
+        delay = WhisperCpp._backoff_delay(0)
+        assert isinstance(delay, float)
+        # 2^0 = 1, so base = 1, plus jitter (0 to 1)
+        assert 1.0 <= delay <= 2.0
+
+    def test_backoff_delay_capped_at_60(self):
+        delay = WhisperCpp._backoff_delay(10)
+        # min(2^10, 60) = 60, plus jitter (0 to 1)
+        assert 60.0 <= delay <= 61.0
+
+    def test_backoff_delay_increases(self):
+        d1 = WhisperCpp._backoff_delay(1)
+        d2 = WhisperCpp._backoff_delay(2)
+        # 2^1 = 2, 2^2 = 4, plus jitter of max 1 each
+        # So d1 <= 3, d2 >= 4 (worst case d1=3, d2=4)
+        assert d2 >= d1 + 1 or d2 > d1
+
+
+class TestTranscribeOnce:
+    @patch("tiz.audio_inference_clients.requests.post")
+    def test_basic(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"text": "hello"}
+        mock_post.return_value = mock_resp
+
+        client = WhisperCpp()
+        result = client._transcribe_once(b"audio")
+
+        assert result == "hello"
+
+    @patch("tiz.audio_inference_clients.requests.post")
+    def test_passes_through_connection_error(self, mock_post):
+        mock_post.side_effect = requests.exceptions.ConnectionError("conn err")
+
+        client = WhisperCpp()
+        with pytest.raises(requests.exceptions.ConnectionError):
+            client._transcribe_once(b"audio")
+
+    @patch("tiz.audio_inference_clients.requests.post")
+    def test_passes_through_timeout(self, mock_post):
+        mock_post.side_effect = requests.exceptions.Timeout("timed out")
+
+        client = WhisperCpp()
+        with pytest.raises(requests.exceptions.Timeout):
+            client._transcribe_once(b"audio")
+
+    @patch("tiz.audio_inference_clients.requests.post")
+    def test_passes_through_http_error(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            "400 Bad"
+        )
+        mock_post.return_value = mock_resp
+
+        client = WhisperCpp()
+        with pytest.raises(requests.exceptions.HTTPError):
+            client._transcribe_once(b"audio")
+
+
+class TestTranscribeRetry:
+    @patch("tiz.audio_inference_clients.time.sleep")
+    @patch("tiz.audio_inference_clients.requests.post")
+    def test_retry_on_connection_error_then_success(self, mock_post, mock_sleep):
+        """Succeeds on the second attempt after a ConnectionError."""
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"text": "ok"}
+        mock_post.side_effect = [
+            requests.exceptions.ConnectionError("conn err"),
+            mock_resp,
+        ]
+
+        client = WhisperCpp(max_retries=3)
+        result = client.transcribe(b"audio")
+
+        assert result == "ok"
+        assert mock_post.call_count == 2
+        mock_sleep.assert_called_once()
+
+    @patch("tiz.audio_inference_clients.time.sleep")
+    @patch("tiz.audio_inference_clients.requests.post")
+    def test_retry_on_timeout_then_success(self, mock_post, mock_sleep):
+        """Succeeds on the second attempt after a Timeout."""
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"text": "ok"}
+        mock_post.side_effect = [
+            requests.exceptions.Timeout("timed out"),
+            mock_resp,
+        ]
+
+        client = WhisperCpp(max_retries=3)
+        result = client.transcribe(b"audio")
+
+        assert result == "ok"
+        assert mock_post.call_count == 2
+        mock_sleep.assert_called_once()
+
+    @patch("tiz.audio_inference_clients.time.sleep")
+    @patch("tiz.audio_inference_clients.requests.post")
+    def test_retry_on_http_500_then_success(self, mock_post, mock_sleep):
+        """Succeeds on the second attempt after a 500 HTTPError."""
+        fail_response = MagicMock()
+        fail_response.status_code = 500
+        mock_resp_fail = MagicMock()
+        mock_resp_fail.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            "500 Server Error", response=fail_response
+        )
+
+        mock_resp_ok = MagicMock()
+        mock_resp_ok.json.return_value = {"text": "ok"}
+
+        mock_post.side_effect = [mock_resp_fail, mock_resp_ok]
+
+        client = WhisperCpp(max_retries=3)
+        result = client.transcribe(b"audio")
+
+        assert result == "ok"
+        assert mock_post.call_count == 2
+        mock_sleep.assert_called_once()
+
+    @patch("tiz.audio_inference_clients.time.sleep")
+    @patch("tiz.audio_inference_clients.requests.post")
+    def test_retry_on_http_502(self, mock_post, mock_sleep):
+        """Retries on HTTP 502."""
+        fail_response = MagicMock()
+        fail_response.status_code = 502
+        mock_resp_fail = MagicMock()
+        mock_resp_fail.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            "502 Bad Gateway", response=fail_response
+        )
+        mock_resp_ok = MagicMock()
+        mock_resp_ok.json.return_value = {"text": "ok"}
+        mock_post.side_effect = [mock_resp_fail, mock_resp_ok]
+
+        client = WhisperCpp(max_retries=3)
+        assert client.transcribe(b"audio") == "ok"
+        assert mock_post.call_count == 2
+        mock_sleep.assert_called_once()
+
+    @patch("tiz.audio_inference_clients.time.sleep")
+    @patch("tiz.audio_inference_clients.requests.post")
+    def test_retry_on_http_503(self, mock_post, mock_sleep):
+        """Retries on HTTP 503."""
+        fail_response = MagicMock()
+        fail_response.status_code = 503
+        mock_resp_fail = MagicMock()
+        mock_resp_fail.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            "503 Service Unavailable", response=fail_response
+        )
+        mock_resp_ok = MagicMock()
+        mock_resp_ok.json.return_value = {"text": "ok"}
+        mock_post.side_effect = [mock_resp_fail, mock_resp_ok]
+
+        client = WhisperCpp(max_retries=3)
+        assert client.transcribe(b"audio") == "ok"
+        assert mock_post.call_count == 2
+        mock_sleep.assert_called_once()
+
+    @patch("tiz.audio_inference_clients.time.sleep")
+    @patch("tiz.audio_inference_clients.requests.post")
+    def test_retry_on_http_504(self, mock_post, mock_sleep):
+        """Retries on HTTP 504."""
+        fail_response = MagicMock()
+        fail_response.status_code = 504
+        mock_resp_fail = MagicMock()
+        mock_resp_fail.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            "504 Gateway Timeout", response=fail_response
+        )
+        mock_resp_ok = MagicMock()
+        mock_resp_ok.json.return_value = {"text": "ok"}
+        mock_post.side_effect = [mock_resp_fail, mock_resp_ok]
+
+        client = WhisperCpp(max_retries=3)
+        assert client.transcribe(b"audio") == "ok"
+        assert mock_post.call_count == 2
+        mock_sleep.assert_called_once()
+
+    @patch("tiz.audio_inference_clients.time.sleep")
+    @patch("tiz.audio_inference_clients.requests.post")
+    def test_retry_on_http_429(self, mock_post, mock_sleep):
+        """Retries on HTTP 429 (rate limit)."""
+        fail_response = MagicMock()
+        fail_response.status_code = 429
+        mock_resp_fail = MagicMock()
+        mock_resp_fail.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            "429 Rate Limit", response=fail_response
+        )
+        mock_resp_ok = MagicMock()
+        mock_resp_ok.json.return_value = {"text": "ok"}
+        mock_post.side_effect = [mock_resp_fail, mock_resp_ok]
+
+        client = WhisperCpp(max_retries=3)
+        assert client.transcribe(b"audio") == "ok"
+        assert mock_post.call_count == 2
+        mock_sleep.assert_called_once()
+
+    @patch("tiz.audio_inference_clients.time.sleep")
+    @patch("tiz.audio_inference_clients.requests.post")
+    def test_exhaust_retries_connection_error(self, mock_post, mock_sleep):
+        """Raises RuntimeError after exhausting retries on ConnectionError."""
+        mock_post.side_effect = requests.exceptions.ConnectionError("conn err")
+
+        client = WhisperCpp(max_retries=3)
+        with pytest.raises(RuntimeError, match="after 3 retries"):
+            client.transcribe(b"audio")
+
+        assert mock_post.call_count == 4  # 1 initial + 3 retries
+        assert mock_sleep.call_count == 3
+
+    @patch("tiz.audio_inference_clients.time.sleep")
+    @patch("tiz.audio_inference_clients.requests.post")
+    def test_exhaust_retries_timeout(self, mock_post, mock_sleep):
+        """Raises RuntimeError after exhausting retries on Timeout."""
+        mock_post.side_effect = requests.exceptions.Timeout("timeout")
+
+        client = WhisperCpp(max_retries=2)
+        with pytest.raises(RuntimeError, match="after 2 retries"):
+            client.transcribe(b"audio")
+
+        assert mock_post.call_count == 3  # 1 initial + 2 retries
+        assert mock_sleep.call_count == 2
+
+    @patch("tiz.audio_inference_clients.time.sleep")
+    @patch("tiz.audio_inference_clients.requests.post")
+    def test_exhaust_retries_http_500(self, mock_post, mock_sleep):
+        """Raises RuntimeError after exhausting retries on persistent 500."""
+        fail_response = MagicMock()
+        fail_response.status_code = 500
+        mock_resp_fail = MagicMock()
+        mock_resp_fail.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            "500 Server Error", response=fail_response
+        )
+        mock_post.return_value = mock_resp_fail
+
+        client = WhisperCpp(max_retries=1)
+        with pytest.raises(RuntimeError, match="after 1 retries"):
+            client.transcribe(b"audio")
+
+        assert mock_post.call_count == 2  # 1 initial + 1 retry
+        assert mock_sleep.call_count == 1
+
+    @patch("tiz.audio_inference_clients.requests.post")
+    def test_non_retryable_http_error_does_not_retry(self, mock_post):
+        """Non-5xx/429 HTTP error raises immediately without retry."""
+        fail_response = MagicMock()
+        fail_response.status_code = 400
+        mock_resp_fail = MagicMock()
+        mock_resp_fail.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            "400 Bad Request", response=fail_response
+        )
+        mock_post.return_value = mock_resp_fail
+
+        client = WhisperCpp(max_retries=3)
+        with pytest.raises(RuntimeError, match="WhisperCpp request failed"):
+            client.transcribe(b"audio")
+
+        assert mock_post.call_count == 1
+
+    @patch("tiz.audio_inference_clients.requests.post")
+    def test_http_error_without_response_does_not_retry(self, mock_post):
+        """HTTPError without a response raises immediately (unknown status)."""
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            "Some HTTPError"
+        )
+        mock_post.return_value = mock_resp
+
+        client = WhisperCpp(max_retries=3)
+        with pytest.raises(RuntimeError, match="WhisperCpp request failed"):
+            client.transcribe(b"audio")
+
+        assert mock_post.call_count == 1
+
+    @patch("tiz.audio_inference_clients.time.sleep")
+    @patch("tiz.audio_inference_clients.requests.post")
+    def test_zero_max_retries_no_retry(self, mock_post, mock_sleep):
+        """With max_retries=0, a retryable error still fails immediately."""
+        mock_post.side_effect = requests.exceptions.ConnectionError("conn err")
+
+        client = WhisperCpp(max_retries=0)
+        with pytest.raises(RuntimeError, match="after 0 retries"):
+            client.transcribe(b"audio")
+
+        assert mock_post.call_count == 1
+        mock_sleep.assert_not_called()
+
+    @patch("tiz.audio_inference_clients.time.sleep")
+    @patch("tiz.audio_inference_clients.requests.post")
+    def test_custom_max_retries(self, mock_post, mock_sleep):
+        """Only retries up to custom max_retries value."""
+        mock_post.side_effect = requests.exceptions.ConnectionError("conn err")
+
+        client = WhisperCpp(max_retries=5)
+        with pytest.raises(RuntimeError, match="after 5 retries"):
+            client.transcribe(b"audio")
+
+        assert mock_post.call_count == 6  # 1 initial + 5 retries
+        assert mock_sleep.call_count == 5

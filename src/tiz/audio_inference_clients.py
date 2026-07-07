@@ -11,6 +11,8 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import random
+import time
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -94,6 +96,7 @@ class WhisperCpp(AudioInferenceClient):
         sampling_params: SamplingParams | None = None,
         language: str | None = None,
         prompt: str | None = None,
+        max_retries: int = 3,
     ) -> None:
         """Initialise the WhisperCpp client.
 
@@ -106,6 +109,7 @@ class WhisperCpp(AudioInferenceClient):
             language: Optional language code (e.g. ``"en"``, ``"fr"``).
                 When ``None`` the server will attempt to detect the language.
             prompt: Optional initial prompt to guide the transcription.
+            max_retries: Maximum number of retries on server errors.
         """
         super().__init__(sampling_params, language, prompt)
         self.host = validate_host(host).rstrip("/")
@@ -117,6 +121,7 @@ class WhisperCpp(AudioInferenceClient):
         self.headers: dict[str, str] = {
             "User-Agent": USER_AGENT,
         }
+        self.max_retries = max_retries
 
     @property
     def _verify(self) -> bool | str:
@@ -141,6 +146,11 @@ class WhisperCpp(AudioInferenceClient):
             raise ValueError("Audio bytes data is empty")
         return audio
 
+    @staticmethod
+    def _backoff_delay(retries: int) -> float:
+        """Compute exponential backoff with jitter."""
+        return float(min(2**retries, 60)) + random.uniform(0, 1)
+
     def transcribe(
         self,
         audio: bytes | str,
@@ -153,7 +163,43 @@ class WhisperCpp(AudioInferenceClient):
         Returns:
             The transcribed text.
 
+        Raises:
+            RuntimeError: On request/JSON failure or empty response.
+
         """
+        retries = 0
+        while True:
+            try:
+                return self._transcribe_once(audio)
+            except (
+                requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
+            ) as e:
+                retries += 1
+                if retries > self.max_retries:
+                    raise RuntimeError(
+                        f"WhisperCpp request failed after {self.max_retries} retries: {e}"
+                    ) from e
+                backoff = self._backoff_delay(retries)
+                time.sleep(backoff)
+            except requests.exceptions.HTTPError as e:
+                status_code = e.response.status_code if e.response is not None else None
+                if status_code in {500, 502, 503, 504, 429}:
+                    retries += 1
+                    if retries > self.max_retries:
+                        raise RuntimeError(
+                            f"WhisperCpp request failed after {self.max_retries} retries: {e}"
+                        ) from e
+                    backoff = self._backoff_delay(retries)
+                    time.sleep(backoff)
+                else:
+                    raise RuntimeError(f"WhisperCpp request failed: {e}") from e
+
+    def _transcribe_once(
+        self,
+        audio: bytes | str,
+    ) -> str:
+        """Execute a single transcription request (no retry logic)."""
         timeout = self.inference_timeout or self.timeout
         audio_data = self._audio_bytes(audio)
         files: dict[str, Any] = {
@@ -174,22 +220,15 @@ class WhisperCpp(AudioInferenceClient):
 
         data["response_format"] = "json"
 
-        try:
-            resp = requests.post(
-                self.url,
-                headers=self.headers,
-                files=files,
-                data=data,
-                timeout=timeout,
-                verify=self._verify,
-            )
-            resp.raise_for_status()
-        except (
-            requests.exceptions.ConnectionError,
-            requests.exceptions.Timeout,
-            requests.exceptions.HTTPError,
-        ) as e:
-            raise RuntimeError(f"WhisperCpp request failed: {e}") from e
+        resp = requests.post(
+            self.url,
+            headers=self.headers,
+            files=files,
+            data=data,
+            timeout=timeout,
+            verify=self._verify,
+        )
+        resp.raise_for_status()
 
         try:
             result: Any = resp.json()
