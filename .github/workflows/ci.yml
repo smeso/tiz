@@ -89,7 +89,8 @@ jobs:
           node-version: 20
       - name: Install npm dependencies
         run: |
-          npm install -g eslint stylelint htmlhint prettier globals
+          npm init -y
+          npm install eslint stylelint htmlhint prettier globals
       - name: Run web linters
         run: ./scripts/web_checks.sh
 

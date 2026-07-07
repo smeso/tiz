@@ -7,7 +7,12 @@
 
 set -euo pipefail
 
-cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/../src/tiz/data/web_static"
+SCRIPT_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
+REPO_ROOT="$(realpath "$SCRIPT_DIR/..")"
+
+export PATH="$REPO_ROOT/node_modules/.bin:$PATH"
+
+cd "$REPO_ROOT/src/tiz/data/web_static"
 
 WEB_DIR="$PWD"
 
