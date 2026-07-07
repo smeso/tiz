@@ -437,6 +437,8 @@ class App:
     def __init__(self) -> None:
         self._endpoints: dict[str, EndpointConfig] = {}
         self._static_dir: Path | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._stop_future: asyncio.Future[None] | None = None
 
     def add_endpoint(self, name: str, config: EndpointConfig) -> None:
         """Add a named WebSocket endpoint."""
@@ -650,6 +652,8 @@ class App:
             print(f"Server listening on http://{host}:{port}")
 
         async def _run_server() -> None:
+            self._loop = asyncio.get_running_loop()
+            self._stop_future = asyncio.Future()
             if path is not None:
                 async with serve(
                     self._ws_handler,
@@ -659,7 +663,7 @@ class App:
                     server_header=None,
                     max_size=100 * 1024 * 1024,
                 ):
-                    await asyncio.Future()  # run forever
+                    await self._stop_future
             else:
                 async with serve(
                     self._ws_handler,
@@ -669,7 +673,7 @@ class App:
                     server_header=None,
                     max_size=100 * 1024 * 1024,
                 ):
-                    await asyncio.Future()  # run forever
+                    await self._stop_future
 
         coro = _run_server()
         try:
@@ -679,6 +683,17 @@ class App:
             logger.debug("run: keyboard interrupt received, shutting down")
         finally:
             coro.close()
+            self._loop = None
+            self._stop_future = None
+
+    def stop(self) -> None:
+        """Stop the server by resolving the stop future."""
+        if (
+            self._loop is not None
+            and self._stop_future is not None
+            and not self._stop_future.done()
+        ):
+            self._loop.call_soon_threadsafe(self._stop_future.set_result, None)
 
 
 async def _serve_static_async(
@@ -722,6 +737,7 @@ def run_simple(
     host: str = "localhost",
     port: int = 8080,
     path: str | None = None,
+    _app_holder: list[App] | None = None,
 ) -> None:
     """Run a simple HTTP server for testing.
 
@@ -763,6 +779,8 @@ def run_simple(
         return
 
     app = App()
+    if _app_holder is not None:
+        _app_holder.append(app)
     app._static_dir = config.static_dir
     for endpoint_name, ep_config in config.endpoints.items():
         name = _slugify(endpoint_name)

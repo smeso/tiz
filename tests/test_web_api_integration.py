@@ -1948,7 +1948,7 @@ def test_app_run_method(manifest: Manifest) -> None:
     thread.start()
     time.sleep(0.3)
 
-    _set_async_keyboard_interrupt(thread)
+    app.stop()
     thread.join(timeout=2)
 
     assert not results or "Exception" not in results[0]
@@ -1985,7 +1985,7 @@ def test_app_run_no_endpoints() -> None:
     thread.start()
     time.sleep(0.3)
 
-    _set_async_keyboard_interrupt(thread)
+    app.stop()
     thread.join(timeout=2)
 
     assert not results or "Exception" not in results[0]
@@ -2018,7 +2018,7 @@ def test_app_run_with_static_dir(manifest: Manifest, tmp_path: Path) -> None:
     thread.start()
     time.sleep(0.3)
 
-    _set_async_keyboard_interrupt(thread)
+    app.stop()
     thread.join(timeout=2)
 
     assert not results or "Exception" not in results[0]
@@ -2208,34 +2208,20 @@ def test_run_simple_invalid_config(tmp_path: Path) -> None:
 
 
 def test_run_simple_broken_config(tmp_path: Path) -> None:
-    """Test run_simple with a config that fails to parse."""
+    """Test run_simple with a config that fails to parse (returns immediately)."""
 
     from tiz.web_api import run_simple
 
     config_path = tmp_path / "broken_config.yaml"
     config_path.write_text("invalid: yaml: : : :", encoding="utf-8")
 
-    results: list[str] = []
-
-    def run_app() -> None:
-        try:
-            run_simple(
-                base_path=tmp_path,
-                config_path=config_path,
-                host="127.0.0.1",
-                port=0,
-            )
-        except Exception as exc:
-            results.append(f"Exception: {exc}")
-
-    thread = threading.Thread(target=run_app, daemon=True)
-    thread.start()
-    time.sleep(0.3)
-
-    _set_async_keyboard_interrupt(thread)
-    thread.join(timeout=3)
-
-    assert not results or "Exception" not in results[0]
+    # Should not raise or hang: config parsing fails, run_simple returns
+    run_simple(
+        base_path=tmp_path,
+        config_path=config_path,
+        host="127.0.0.1",
+        port=0,
+    )
 
 
 def test_update_callback_save_pending_no_feedback(manifest: Manifest) -> None:
@@ -2646,6 +2632,7 @@ def test_run_simple_with_valid_yaml_config(tmp_path: Path) -> None:
     )
 
     results: list[str] = []
+    app_holder: list[App] = []
 
     def run_app() -> None:
         try:
@@ -2654,6 +2641,7 @@ def test_run_simple_with_valid_yaml_config(tmp_path: Path) -> None:
                 config_path=config_path,
                 host="127.0.0.1",
                 port=0,
+                _app_holder=app_holder,
             )
         except Exception as exc:
             results.append(f"Exception: {exc}")
@@ -2662,7 +2650,8 @@ def test_run_simple_with_valid_yaml_config(tmp_path: Path) -> None:
     thread.start()
     time.sleep(0.3)
 
-    _set_async_keyboard_interrupt(thread)
+    if app_holder:
+        app_holder[0].stop()
     thread.join(timeout=3)
 
     assert not results or "Exception" not in results[0]
@@ -3139,9 +3128,7 @@ def test_unix_socket_static_file(tmp_path: Path) -> None:
 
 
 def test_app_run_unix_socket_and_connect(tmp_path: Path) -> None:
-    """Test app.run() with unix socket path covers lines 606-612 and 623-631."""
-
-    from tiz.web_api import _set_async_keyboard_interrupt
+    """Test app.run() with unix socket path covers unix socket serve and stop."""
 
     manifest = _make_minimal_manifest()
     socket_path = str(tmp_path / "run.sock")
@@ -3204,7 +3191,7 @@ def test_app_run_unix_socket_and_connect(tmp_path: Path) -> None:
 
         asyncio.run(_ws_test())
 
-        _set_async_keyboard_interrupt(thread)
+        app.stop()
         thread.join(timeout=3)
 
     assert not results or "Exception" not in results[0]
@@ -3212,8 +3199,6 @@ def test_app_run_unix_socket_and_connect(tmp_path: Path) -> None:
 
 def test_app_run_unix_socket_with_static_dir(tmp_path: Path) -> None:
     """Test app.run() with unix socket and static_dir."""
-
-    from tiz.web_api import _set_async_keyboard_interrupt
 
     manifest = _make_minimal_manifest()
     socket_path = str(tmp_path / "static_run.sock")
@@ -3263,7 +3248,7 @@ def test_app_run_unix_socket_with_static_dir(tmp_path: Path) -> None:
 
         asyncio.run(_http_test())
 
-        _set_async_keyboard_interrupt(thread)
+        app.stop()
         thread.join(timeout=3)
 
     assert not results or "Exception" not in results[0]
@@ -3271,7 +3256,6 @@ def test_app_run_unix_socket_with_static_dir(tmp_path: Path) -> None:
 
 def test_app_run_unix_socket_no_endpoints(tmp_path: Path) -> None:
     """Test app.run() with unix socket and no endpoints."""
-    from tiz.web_api import _set_async_keyboard_interrupt
 
     socket_path = str(tmp_path / "noep.sock")
     app = App()
@@ -3287,7 +3271,7 @@ def test_app_run_unix_socket_no_endpoints(tmp_path: Path) -> None:
     thread.start()
     time.sleep(0.3)
 
-    _set_async_keyboard_interrupt(thread)
+    app.stop()
     thread.join(timeout=3)
 
     assert not results or "Exception" not in results[0]
@@ -3295,7 +3279,6 @@ def test_app_run_unix_socket_no_endpoints(tmp_path: Path) -> None:
 
 def test_app_run_unix_socket_with_static_dir_only(tmp_path: Path) -> None:
     """Test app.run() unix socket with static_dir and no endpoints."""
-    from tiz.web_api import _set_async_keyboard_interrupt
 
     socket_path = str(tmp_path / "static_only.sock")
     static_dir = tmp_path / "static_only_dir"
@@ -3315,7 +3298,7 @@ def test_app_run_unix_socket_with_static_dir_only(tmp_path: Path) -> None:
     thread.start()
     time.sleep(0.3)
 
-    _set_async_keyboard_interrupt(thread)
+    app.stop()
     thread.join(timeout=3)
 
     assert not results or "Exception" not in results[0]
@@ -3323,7 +3306,6 @@ def test_app_run_unix_socket_with_static_dir_only(tmp_path: Path) -> None:
 
 def test_app_run_tcp_mode_with_static_dir(tmp_path: Path) -> None:
     """Test app.run() TCP mode with static_dir covering TCP static prints."""
-    from tiz.web_api import _set_async_keyboard_interrupt
 
     manifest = _make_minimal_manifest()
     static_dir = tmp_path / "tcp_static"
@@ -3350,7 +3332,7 @@ def test_app_run_tcp_mode_with_static_dir(tmp_path: Path) -> None:
         thread.start()
         time.sleep(0.5)
 
-        _set_async_keyboard_interrupt(thread)
+        app.stop()
         thread.join(timeout=3)
 
     assert not results or "Exception" not in results[0]
@@ -3729,3 +3711,82 @@ def test_static_file_binary_as_html_triggers_unicode_error(
             await server.wait_closed()
 
     asyncio.run(_test())
+
+
+def test_stop_when_not_running(manifest: Manifest) -> None:
+    """Test that calling stop() when loop is None does nothing.
+
+    Covers the False branch of the if condition in stop().
+    """
+
+    app = App()
+    app.add_endpoint(
+        "chat",
+        EndpointConfig(manifest=manifest, base_path=Path("/tmp")),
+    )
+    app._loop = None
+    app._stop_future = None
+    app.stop()
+    # Should not raise
+
+
+def test_stop_when_loop_running_and_future_pending(manifest: Manifest) -> None:
+    """Test stop() when loop is running and future is pending.
+
+    Covers the full True branch of the if condition in stop().
+    """
+
+    app = App()
+    app.add_endpoint(
+        "chat",
+        EndpointConfig(manifest=manifest, base_path=Path("/tmp")),
+    )
+
+    results: list[str] = []
+
+    def run_app() -> None:
+        try:
+            app.run(host="127.0.0.1", port=0)
+        except Exception as exc:
+            results.append(f"Exception: {exc}")
+
+    thread = threading.Thread(target=run_app, daemon=True)
+    thread.start()
+    time.sleep(0.3)
+
+    # stop() will find _loop not None, _stop_future not None, and not done
+    app.stop()
+    thread.join(timeout=2)
+
+    assert not results or "Exception" not in results[0]
+    assert app._loop is None
+    assert app._stop_future is None
+
+
+def test_run_simple_with_endpoints_and_app_holder(tmp_path: Path) -> None:
+    """Test run_simple with _app_holder populated to cover line 783."""
+    from tiz.web_api import run_simple
+
+    config_path = tmp_path / "config.yaml"
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        "tasks:\n  - name: default\n    worker_image: tiz-worker:latest\n",
+        encoding="utf-8",
+    )
+    config_path.write_text(
+        f"endpoints:\n  test:\n    manifests:\n      - {manifest_file}\n",
+        encoding="utf-8",
+    )
+
+    app_holder: list[App] = []
+
+    with patch("tiz.web_api.App.run", side_effect=RuntimeError("stop")):
+        run_simple(
+            base_path=tmp_path,
+            config_path=config_path,
+            host="127.0.0.1",
+            port=0,
+            _app_holder=app_holder,
+        )
+
+    assert len(app_holder) == 1

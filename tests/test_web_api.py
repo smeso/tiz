@@ -3153,3 +3153,80 @@ class TestRunSimple:
             ):
                 run_simple(base_path=tmp_path, config_path=config_path)
                 mock_logger.error.assert_called()
+
+    def test_run_simple_with_app_holder(self, tmp_path: Path) -> None:
+        """run_simple should append the App to _app_holder when provided."""
+        from tiz.web_api import run_simple
+
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text("static_dir: static\nendpoints: {}\n")
+        static_dir = tmp_path / "static"
+        static_dir.mkdir()
+
+        app_holder: list[App] = []
+
+        with patch("tiz.web_api.parse_web_config") as mock_parse:
+            mock_config = MagicMock()
+            mock_config.static_dir = static_dir
+            mock_config.endpoints = {}
+            mock_parse.return_value = mock_config
+
+            with (
+                patch.object(App, "run") as mock_run,
+                patch("tiz.web_api.logger"),
+            ):
+                run_simple(
+                    base_path=tmp_path,
+                    config_path=config_path,
+                    _app_holder=app_holder,
+                )
+                mock_run.assert_called_once()
+                assert len(app_holder) == 1
+                assert isinstance(app_holder[0], App)
+
+
+class TestAppStop:
+    """Test the App.stop method."""
+
+    def test_stop_calls_call_soon_threadsafe(self) -> None:
+        """When all conditions are met, stop should call call_soon_threadsafe on the loop."""
+        app = App()
+        mock_future = MagicMock()
+        mock_future.done.return_value = False
+        mock_loop = MagicMock()
+        app._loop = mock_loop  # type: ignore[assignment]
+        app._stop_future = mock_future
+
+        app.stop()
+        mock_loop.call_soon_threadsafe.assert_called_once_with(
+            mock_future.set_result, None
+        )
+
+    def test_stop_with_done_future(self) -> None:
+        """When _stop_future is already done, stop should not call call_soon_threadsafe."""
+        app = App()
+        mock_future = MagicMock()
+        mock_future.done.return_value = True
+        mock_loop = MagicMock()
+        app._loop = mock_loop  # type: ignore[assignment]
+        app._stop_future = mock_future
+
+        app.stop()
+        mock_loop.call_soon_threadsafe.assert_not_called()
+
+    def test_stop_with_no_loop(self) -> None:
+        """When _loop is None, stop should be a no-op."""
+        app = App()
+        app._stop_future = MagicMock()
+
+        app.stop()
+
+    def test_stop_with_no_future(self) -> None:
+        """When _stop_future is None, stop should be a no-op."""
+        app = App()
+        mock_loop = MagicMock()
+        app._loop = mock_loop  # type: ignore[assignment]
+        app._stop_future = None
+
+        app.stop()
+        mock_loop.call_soon_threadsafe.assert_not_called()
