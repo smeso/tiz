@@ -14,7 +14,7 @@ class ReadMulti(SocketTool):
     def prompt(self) -> str:
         return json.dumps(
             {
-                "name": "ReadMulti",
+                "name": self.fname(),
                 "description": "Read multiple files at once.",
                 "parameters": {
                     "type": "object",

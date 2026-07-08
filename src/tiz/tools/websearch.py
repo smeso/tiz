@@ -32,7 +32,7 @@ class WebSearch(SocketTool):
     def prompt(self) -> str:
         return json.dumps(
             {
-                "name": "WebSearch",
+                "name": self.fname(),
                 "description": (
                     "Search the web using DuckDuckGo. Returns a list of search results "
                     "with titles, URLs, and snippets."

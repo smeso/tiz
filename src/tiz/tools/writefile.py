@@ -12,7 +12,7 @@ class WriteFile(SocketTool):
     def prompt(self) -> str:
         return json.dumps(
             {
-                "name": "WriteFile",
+                "name": self.fname(),
                 "description": "Write a text file's contents.",
                 "parameters": {
                     "type": "object",

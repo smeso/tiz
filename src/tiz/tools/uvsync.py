@@ -43,7 +43,7 @@ class UvSync(SocketTool):
     def prompt(self) -> str:
         return json.dumps(
             {
-                "name": "UvSync",
+                "name": self.fname(),
                 "description": (
                     "Run 'uv sync' to sync dependencies for a Python project. "
                     "Useful when regular bash commands don't have internet access "

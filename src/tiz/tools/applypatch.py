@@ -14,7 +14,7 @@ class ApplyPatch(SocketTool):
     def prompt(self) -> str:
         return json.dumps(
             {
-                "name": "ApplyPatch",
+                "name": self.fname(),
                 "description": "Apply a patch file using the patch command.",
                 "parameters": {
                     "type": "object",

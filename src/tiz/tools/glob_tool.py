@@ -12,7 +12,7 @@ class Glob(SocketTool):
     def prompt(self) -> str:
         return json.dumps(
             {
-                "name": "Glob",
+                "name": self.fname(),
                 "description": "Search for files matching a glob pattern.",
                 "parameters": {
                     "type": "object",

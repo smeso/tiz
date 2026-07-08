@@ -12,7 +12,7 @@ class ReadFile(SocketTool):
     def prompt(self) -> str:
         return json.dumps(
             {
-                "name": "ReadFile",
+                "name": self.fname(),
                 "description": "Read a text file's contents. Each line is prefixed with its line number.",
                 "parameters": {
                     "type": "object",

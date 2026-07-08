@@ -443,7 +443,7 @@ class WebFetch(SocketTool):
     def prompt(self) -> str:
         return json.dumps(
             {
-                "name": "WebFetch",
+                "name": self.fname(),
                 "description": "Fetch a URL via HTTP/HTTPS. Returns the response status, headers, and body content.",
                 "parameters": {
                     "type": "object",

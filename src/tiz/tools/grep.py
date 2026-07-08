@@ -13,7 +13,7 @@ class Grep(SocketTool):
     def prompt(self) -> str:
         return json.dumps(
             {
-                "name": "Grep",
+                "name": self.fname(),
                 "description": "Search for text patterns in files using grep or ripgrep.",
                 "parameters": {
                     "type": "object",

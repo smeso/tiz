@@ -12,7 +12,7 @@ class ListDir(SocketTool):
     def prompt(self) -> str:
         return json.dumps(
             {
-                "name": "ListDir",
+                "name": self.fname(),
                 "description": "List directory contents with metadata.",
                 "parameters": {
                     "type": "object",

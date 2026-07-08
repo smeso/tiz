@@ -18,7 +18,7 @@ class UvPythonInstall(SocketTool):
     def prompt(self) -> str:
         return json.dumps(
             {
-                "name": "UvPythonInstall",
+                "name": self.fname(),
                 "description": (
                     "Run 'uv python install --no-bin -f' to install a Python version. "
                     "Useful when regular bash commands don't have internet access "

@@ -18,7 +18,7 @@ class CargoFetch(SocketTool):
     def prompt(self) -> str:
         return json.dumps(
             {
-                "name": "CargoFetch",
+                "name": self.fname(),
                 "description": (
                     "Run 'cargo fetch' to fetch dependencies for a Rust project. "
                     "Useful when regular bash commands don't have internet access "

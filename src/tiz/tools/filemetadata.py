@@ -12,7 +12,7 @@ class FileMetadata(SocketTool):
     def prompt(self) -> str:
         return json.dumps(
             {
-                "name": "FileMetadata",
+                "name": self.fname(),
                 "description": "Get metadata for a file or directory (type, size, permissions, timestamps).",
                 "parameters": {
                     "type": "object",

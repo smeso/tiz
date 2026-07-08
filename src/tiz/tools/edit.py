@@ -12,7 +12,7 @@ class Edit(SocketTool):
     def prompt(self) -> str:
         return json.dumps(
             {
-                "name": "Edit",
+                "name": self.fname(),
                 "description": "Edit a file by replacing an old string with a new string.",
                 "parameters": {
                     "type": "object",

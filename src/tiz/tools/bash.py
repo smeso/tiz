@@ -43,7 +43,7 @@ class Bash(SocketTool):
     def prompt(self) -> str:
         return json.dumps(
             {
-                "name": "Bash",
+                "name": self.fname(),
                 "description": "Run a command in a bash shell and then exit the shell.",
                 "parameters": {
                     "type": "object",

@@ -12,7 +12,7 @@ class InsertFile(SocketTool):
     def prompt(self) -> str:
         return json.dumps(
             {
-                "name": "InsertFile",
+                "name": self.fname(),
                 "description": "Insert content into a file at a specific line number.",
                 "parameters": {
                     "type": "object",
