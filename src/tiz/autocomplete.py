@@ -27,6 +27,8 @@ def _resolve_config_dir(parsed_args: argparse.Namespace) -> Path:
         config_dir = Path.home() / ".tiz"
     elif not isinstance(config_dir, Path):
         config_dir = Path(config_dir)
+    elif type(config_dir) is not Path:
+        config_dir = Path(str(config_dir))
     return config_dir
 
 

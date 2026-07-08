@@ -808,13 +808,41 @@ def test_resolve_config_dir_path_subclass():
     """_resolve_config_dir handles a Path subclass without error."""
     from tiz.autocomplete import _resolve_config_dir
 
-    class MyPath(Path):
-        pass
+    # Python 3.11+ does not allow direct construction of Path subclasses.
+    # Test that a duck-typed Path-like object is handled gracefully.
+    class MyPath:
+        def __str__(self):
+            return "/some/path"
+
+        def __fspath__(self):
+            return "/some/path"
 
     parsed = argparse.Namespace()
-    parsed.config_dir = MyPath("/some/path")
+    parsed.config_dir = MyPath()
     result = _resolve_config_dir(parsed)
-    assert result == MyPath("/some/path")
+    assert result == Path("/some/path")
+
+
+def test_resolve_config_dir_exact_path_type():
+    """_resolve_config_dir handles config_dir where type(x) is Path (not PosixPath).
+
+    On Python 3.12, Path('/x') creates a PosixPath, so type(x) is Path is False.
+    This test covers the branch where type(config_dir) is Path is True, e.g. when
+    someone constructs a Path via object.__new__(Path) and then calls __init__.
+    """
+    from tiz.autocomplete import _resolve_config_dir
+
+    # Create a bare Path instance where type(p) is Path is True
+    p = object.__new__(Path)
+    p.__init__("/custom/path")  # type: ignore[misc]
+
+    parsed = argparse.Namespace()
+    parsed.config_dir = p
+    result = _resolve_config_dir(parsed)
+    # The function returns config_dir as-is because type(config_dir) is Path,
+    # skipping the conversion on line 31
+    assert type(result) is Path  # not converted to PosixPath
+    assert result == Path("/custom/path")
 
 
 # ---------------------------------------------------------------------------
