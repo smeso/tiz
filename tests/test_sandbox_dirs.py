@@ -66,20 +66,27 @@ def _commit_file(
     author_email: str = "test@example.com",
 ) -> None:
     """Write *name* with *content* and commit it."""
+    env = {
+        "GIT_AUTHOR_NAME": author_name,
+        "GIT_AUTHOR_EMAIL": author_email,
+        "GIT_COMMITTER_NAME": author_name,
+        "GIT_COMMITTER_EMAIL": author_email,
+    }
     (repo_path / name).write_text(content, encoding="utf-8")
-    subprocess.run(["git", "add", name], cwd=repo_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "add", name], cwd=repo_path, check=True, capture_output=True, env=env
+    )
     subprocess.run(
         [
             "git",
             "commit",
             "-m",
             f"add {name}",
-            "--author",
-            f"{author_name} <{author_email}>",
         ],
         cwd=repo_path,
         check=True,
         capture_output=True,
+        env=env,
     )
 
 
