@@ -206,7 +206,10 @@ class StreamUpdater:
         elif action == "message_group" and status == "sending":
             msg_num = internal.get("message", 0)
             total = internal.get("total_messages", 0)
-            parts = self._prev_title_parts + [f"msg {msg_num}/{total}"]
+            other_parts = [
+                p for p in self._prev_title_parts if not p.startswith("msg ")
+            ]
+            parts = other_parts + [f"msg {msg_num}/{total}"]
         elif action == "prompts":
             if status == "running":
                 parts.append(f"{task}: prompts (parallel)")

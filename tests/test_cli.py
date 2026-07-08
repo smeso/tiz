@@ -839,6 +839,99 @@ def test_stream_updater_tiz_internal_executing_action(capsys, monkeypatch):
     assert "Task 1: ScoringAction 2/5" in captured.out
 
 
+def test_stream_updater_tiz_internal_message_group_replaces_old_msg(
+    capsys, monkeypatch
+):
+    """message_group updates should replace previous msg part in _prev_title_parts, not append."""
+    monkeypatch.setattr("tiz.cli.sys.stdout.isatty", lambda: True)
+    updater = StreamUpdater(
+        hide_reasoning=False,
+        color_reasoning="#758182",
+        color_input="#ff00ff",
+        command="run",
+    )
+    updater(
+        {
+            "tiz-internal": {
+                "action": "prompts",
+                "status": "group",
+                "task": "Task 1",
+                "group": 1,
+                "total_groups": 2,
+            }
+        }
+    )
+    capsys.readouterr()
+    updater(
+        {
+            "tiz-internal": {
+                "action": "message_group",
+                "status": "sending",
+                "task": "Task 1",
+                "message": 1,
+                "total_messages": 3,
+            }
+        }
+    )
+    capsys.readouterr()
+    updater(
+        {
+            "tiz-internal": {
+                "action": "message_group",
+                "status": "sending",
+                "task": "Task 1",
+                "message": 2,
+                "total_messages": 3,
+            }
+        }
+    )
+    capsys.readouterr()
+    # _prev_title_parts should contain only the latest msg part
+    msg_parts = [p for p in updater._prev_title_parts if p.startswith("msg ")]
+    assert msg_parts == ["msg 2/3"], f"Expected only 'msg 2/3', got {msg_parts}"
+
+
+def test_stream_updater_tiz_internal_message_group_multiple_updates(
+    capsys, monkeypatch
+):
+    """Multiple message_group updates should only keep the latest msg part."""
+    monkeypatch.setattr("tiz.cli.sys.stdout.isatty", lambda: True)
+    updater = StreamUpdater(
+        hide_reasoning=False,
+        color_reasoning="#758182",
+        color_input="#ff00ff",
+        command="run",
+    )
+    updater(
+        {
+            "tiz-internal": {
+                "action": "prompts",
+                "status": "group",
+                "task": "Task 1",
+                "group": 1,
+                "total_groups": 2,
+            }
+        }
+    )
+    capsys.readouterr()
+    # Send msg 1/3, 2/3, 3/3
+    for msg_num in range(1, 4):
+        updater(
+            {
+                "tiz-internal": {
+                    "action": "message_group",
+                    "status": "sending",
+                    "task": "Task 1",
+                    "message": msg_num,
+                    "total_messages": 3,
+                }
+            }
+        )
+    # _prev_title_parts should contain only the latest msg part
+    msg_parts = [p for p in updater._prev_title_parts if p.startswith("msg ")]
+    assert msg_parts == ["msg 3/3"], f"Expected only 'msg 3/3', got {msg_parts}"
+
+
 def test_stream_updater_tiz_internal_message_group(capsys, monkeypatch):
     monkeypatch.setattr("tiz.cli.sys.stdout.isatty", lambda: True)
     updater = StreamUpdater(
