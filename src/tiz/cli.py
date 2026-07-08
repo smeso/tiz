@@ -1470,6 +1470,12 @@ def get_parser() -> argparse.ArgumentParser:
         help="Task name for the chat (default: first task)",
     )
     chat_parser.add_argument(
+        "--project",
+        type=str,
+        default=None,
+        help="Project directory path to use for tasks that don't have one set",
+    )
+    chat_parser.add_argument(
         "--context",
         type=str,
         action="append",
@@ -1485,6 +1491,12 @@ def get_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         help="Manifest file (can be specified multiple times)",
+    )
+    run_parser.add_argument(
+        "--project",
+        type=str,
+        default=None,
+        help="Project directory path to use for tasks that don't have one set",
     )
     run_parser.add_argument(
         "--context",
@@ -1508,6 +1520,12 @@ def get_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
         help="Task name to exec into (default: first task)",
+    )
+    exec_parser.add_argument(
+        "--project",
+        type=str,
+        default=None,
+        help="Project directory path to use for tasks that don't have one set",
     )
     exec_parser.add_argument(
         "--extra-run-args",
@@ -1632,6 +1650,18 @@ def main() -> int:
     assert manifest.meta.color_reasoning is not None
     assert manifest.meta.color_input is not None
     assert manifest.meta.color is not None
+
+    if (
+        args.command in ("chat", "run", "exec")
+        and getattr(args, "project", None) is not None
+    ):
+        for task in manifest.tasks:
+            if task.project is not None:
+                parser.error(
+                    f"Task '{task.name}' already has a project set "
+                    f"('{task.project}'); cannot use --project"
+                )
+            task.project = str(args.project)
 
     if (manifest.meta.parallelism or 1) > 1 and ask_confirmations(manifest):
         manifest.meta.parallelism = 1

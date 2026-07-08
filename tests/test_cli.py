@@ -5322,3 +5322,323 @@ with open('/dev/null', 'w') as f:
         cwd=_PROJECT_ROOT,
     )
     assert p.returncode == 1
+
+
+# ---------------------------------------------------------------------------
+# --project argument tests
+# ---------------------------------------------------------------------------
+
+
+def test_main_run_with_project_sets_task_project(capsys, monkeypatch, tmp_path):
+    """--project sets project on tasks that don't have one set."""
+    task = MagicMock()
+    task.project = None
+    mock_manifest = MagicMock()
+    mock_manifest.meta.hide_reasoning = False
+    mock_manifest.meta.color_reasoning = "#758182"
+    mock_manifest.meta.color = True
+    mock_manifest.meta.color_input = "#ff00ff"
+    mock_manifest.meta.verbosity = 0
+    mock_manifest.meta.parallelism = 1
+    mock_manifest.tasks = [task]
+
+    monkeypatch.setattr(
+        "tiz.cli.parse_manifest", MagicMock(return_value=(mock_manifest, None))
+    )
+    monkeypatch.setattr("tiz.cli.run", MagicMock(return_value=({}, None)))
+
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text("meta:\n  version: '0'", encoding="utf-8")
+
+    with patch.object(
+        sys,
+        "argv",
+        [
+            "tiz",
+            "-c",
+            str(tmp_path),
+            "run",
+            "-m",
+            str(manifest_file),
+            "--project",
+            str(tmp_path / "my_project"),
+        ],
+    ):
+        result = main()
+    assert result == 0
+    assert task.project == str(tmp_path / "my_project")
+
+
+def test_main_run_with_project_fails_when_task_has_project(
+    capsys, monkeypatch, tmp_path
+):
+    """--project fails if any task already has a project set."""
+    task = MagicMock()
+    task.project = "/some/existing/path"
+    task.name = "test_task"
+    mock_manifest = MagicMock()
+    mock_manifest.meta.hide_reasoning = False
+    mock_manifest.meta.color_reasoning = "#758182"
+    mock_manifest.meta.color = True
+    mock_manifest.meta.color_input = "#ff00ff"
+    mock_manifest.meta.verbosity = 0
+    mock_manifest.meta.parallelism = 1
+    mock_manifest.tasks = [task]
+
+    monkeypatch.setattr(
+        "tiz.cli.parse_manifest", MagicMock(return_value=(mock_manifest, None))
+    )
+
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text("meta:\n  version: '0'", encoding="utf-8")
+
+    with (
+        patch.object(
+            sys,
+            "argv",
+            [
+                "tiz",
+                "-c",
+                str(tmp_path),
+                "run",
+                "-m",
+                str(manifest_file),
+                "--project",
+                str(tmp_path / "my_project"),
+            ],
+        ),
+        pytest.raises(SystemExit),
+    ):
+        main()
+    captured = capsys.readouterr()
+    assert "already has a project set" in captured.err
+
+
+def test_main_run_with_project_patches_all_tasks(capsys, monkeypatch, tmp_path):
+    """--project patches all tasks that have project=None."""
+    task1 = MagicMock()
+    task1.project = None
+    task2 = MagicMock()
+    task2.project = None
+    mock_manifest = MagicMock()
+    mock_manifest.meta.hide_reasoning = False
+    mock_manifest.meta.color_reasoning = "#758182"
+    mock_manifest.meta.color = True
+    mock_manifest.meta.color_input = "#ff00ff"
+    mock_manifest.meta.verbosity = 0
+    mock_manifest.meta.parallelism = 1
+    mock_manifest.tasks = [task1, task2]
+
+    monkeypatch.setattr(
+        "tiz.cli.parse_manifest", MagicMock(return_value=(mock_manifest, None))
+    )
+    monkeypatch.setattr("tiz.cli.run", MagicMock(return_value=({}, None)))
+
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text("meta:\n  version: '0'", encoding="utf-8")
+
+    proj_path = str(tmp_path / "my_project")
+    with patch.object(
+        sys,
+        "argv",
+        [
+            "tiz",
+            "-c",
+            str(tmp_path),
+            "run",
+            "-m",
+            str(manifest_file),
+            "--project",
+            proj_path,
+        ],
+    ):
+        result = main()
+    assert result == 0
+    assert task1.project == proj_path
+    assert task2.project == proj_path
+
+
+def test_main_chat_with_project_sets_task_project(capsys, monkeypatch, tmp_path):
+    """--project works with chat command."""
+    task = MagicMock()
+    task.project = None
+    mock_manifest = MagicMock()
+    mock_manifest.meta.hide_reasoning = False
+    mock_manifest.meta.color_reasoning = "#758182"
+    mock_manifest.meta.color = True
+    mock_manifest.meta.color_input = "#ff00ff"
+    mock_manifest.meta.verbosity = 0
+    mock_manifest.meta.parallelism = 1
+    mock_manifest.tasks = [task]
+
+    monkeypatch.setattr(
+        "tiz.cli.parse_manifest", MagicMock(return_value=(mock_manifest, None))
+    )
+    monkeypatch.setattr("tiz.cli.helpers_chat", MagicMock(return_value=({}, None)))
+
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text("meta:\n  version: '0'", encoding="utf-8")
+
+    proj_path = str(tmp_path / "my_project")
+    with patch.object(
+        sys,
+        "argv",
+        [
+            "tiz",
+            "-c",
+            str(tmp_path),
+            "chat",
+            "-m",
+            str(manifest_file),
+            "--project",
+            proj_path,
+        ],
+    ):
+        result = main()
+    assert result == 0
+    assert task.project == proj_path
+
+
+def test_main_exec_with_project_sets_task_project(capsys, monkeypatch, tmp_path):
+    """--project works with exec command."""
+    task = MagicMock()
+    task.project = None
+    mock_manifest = MagicMock()
+    mock_manifest.meta.hide_reasoning = False
+    mock_manifest.meta.color_reasoning = "#758182"
+    mock_manifest.meta.color = True
+    mock_manifest.meta.color_input = "#ff00ff"
+    mock_manifest.meta.verbosity = 0
+    mock_manifest.meta.parallelism = 1
+    mock_manifest.tasks = [task]
+
+    monkeypatch.setattr(
+        "tiz.cli.parse_manifest", MagicMock(return_value=(mock_manifest, None))
+    )
+    monkeypatch.setattr("tiz.cli.exec_cmd", MagicMock(return_value=None))
+
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text("meta:\n  version: '0'", encoding="utf-8")
+
+    proj_path = str(tmp_path / "my_project")
+    with patch.object(
+        sys,
+        "argv",
+        [
+            "tiz",
+            "-c",
+            str(tmp_path),
+            "exec",
+            "-m",
+            str(manifest_file),
+            "--project",
+            proj_path,
+        ],
+    ):
+        result = main()
+    assert result == 0
+    assert task.project == proj_path
+
+
+def test_parser_run_has_project_arg():
+    """run subparser has --project argument."""
+    parser = get_parser()
+    parsed = parser.parse_args(["run", "-m", "test.yaml", "--project", "/some/path"])
+    assert parsed.command == "run"
+    assert parsed.project == "/some/path"
+
+
+def test_parser_chat_has_project_arg():
+    """chat subparser has --project argument."""
+    parser = get_parser()
+    parsed = parser.parse_args(["chat", "-m", "test.yaml", "--project", "/some/path"])
+    assert parsed.command == "chat"
+    assert parsed.project == "/some/path"
+
+
+def test_parser_exec_has_project_arg():
+    """exec subparser has --project argument."""
+    parser = get_parser()
+    parsed = parser.parse_args(["exec", "-m", "test.yaml", "--project", "/some/path"])
+    assert parsed.command == "exec"
+    assert parsed.project == "/some/path"
+
+
+def test_main_run_without_project_does_not_patch(capsys, monkeypatch, tmp_path):
+    """Without --project, task.project should remain unchanged."""
+    task = MagicMock()
+    task.project = None
+    mock_manifest = MagicMock()
+    mock_manifest.meta.hide_reasoning = False
+    mock_manifest.meta.color_reasoning = "#758182"
+    mock_manifest.meta.color = True
+    mock_manifest.meta.color_input = "#ff00ff"
+    mock_manifest.meta.verbosity = 0
+    mock_manifest.meta.parallelism = 1
+    mock_manifest.tasks = [task]
+
+    monkeypatch.setattr(
+        "tiz.cli.parse_manifest", MagicMock(return_value=(mock_manifest, None))
+    )
+    monkeypatch.setattr("tiz.cli.run", MagicMock(return_value=({}, None)))
+
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text("meta:\n  version: '0'", encoding="utf-8")
+
+    with patch.object(
+        sys,
+        "argv",
+        ["tiz", "-c", str(tmp_path), "run", "-m", str(manifest_file)],
+    ):
+        result = main()
+    assert result == 0
+    assert task.project is None
+
+
+def test_main_run_with_project_conflict_detected_for_second_task(
+    capsys, monkeypatch, tmp_path
+):
+    """--project fails if any task has project set, even if others don't."""
+    task1 = MagicMock()
+    task1.project = None
+    task1.name = "task_without_project"
+    task2 = MagicMock()
+    task2.project = "/some/path"
+    task2.name = "task_with_project"
+    mock_manifest = MagicMock()
+    mock_manifest.meta.hide_reasoning = False
+    mock_manifest.meta.color_reasoning = "#758182"
+    mock_manifest.meta.color = True
+    mock_manifest.meta.color_input = "#ff00ff"
+    mock_manifest.meta.verbosity = 0
+    mock_manifest.meta.parallelism = 1
+    mock_manifest.tasks = [task1, task2]
+
+    monkeypatch.setattr(
+        "tiz.cli.parse_manifest", MagicMock(return_value=(mock_manifest, None))
+    )
+
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text("meta:\n  version: '0'", encoding="utf-8")
+
+    with (
+        patch.object(
+            sys,
+            "argv",
+            [
+                "tiz",
+                "-c",
+                str(tmp_path),
+                "run",
+                "-m",
+                str(manifest_file),
+                "--project",
+                str(tmp_path / "my_project"),
+            ],
+        ),
+        pytest.raises(SystemExit),
+    ):
+        main()
+    captured = capsys.readouterr()
+    assert "task_with_project" in captured.err
+    assert "already has a project set" in captured.err
