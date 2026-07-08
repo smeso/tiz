@@ -1014,6 +1014,8 @@ class SandboxDirs:
                         orig_repo_heads = {h.name for h in orig_repo.heads}
                         for ref in remote.refs:
                             branch_to_sync = ref.name.split("/")[-1]
+                            if branch_to_sync == "HEAD":
+                                continue
                             if branch_to_sync in orig_repo_heads:
                                 orig_repo.git.checkout(branch_to_sync)
                             else:

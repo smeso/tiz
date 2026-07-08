@@ -3862,3 +3862,35 @@ def test_sync_from_and_to_original_with_submodule_roundtrip(
     assert (git_repo_with_submodule / "orig_main.txt").read_text() == "orig main\n"
     assert (pd / "sandbox_main.txt").read_text() == "sandbox main\n"
     assert (pd / "orig_main.txt").read_text() == "orig main\n"
+
+
+def test_sync_to_original_all_branches_skips_head_ref(
+    git_original_project: Path, sandbox_base: Path, monkeypatch: Any
+) -> None:
+    """When sync_to_original with all_branches=True, HEAD ref from the remote
+    should be skipped (line 1018 in sandbox_dirs.py)."""
+    s = SandboxDirs(
+        "sb_head_ref_skip",
+        project_path=str(git_original_project),
+        base_path=sandbox_base,
+    )
+    s.create()
+    pd = s.project_dir
+    _commit_file(pd, "sandbox_file.txt", "sandbox file\n")
+
+    orig_fetch = git.Remote.fetch
+
+    def patched_fetch(self, *args: Any, **kwargs: Any) -> Any:
+        result = orig_fetch(self, *args, **kwargs)
+        # After fetch, write a HEAD ref into the remote tracking namespace
+        refs_dir = Path(self.repo.git_dir) / "refs" / "remotes" / self.name
+        refs_dir.mkdir(parents=True, exist_ok=True)
+        (refs_dir / "HEAD").write_text(self.repo.head.commit.hexsha + "\n")
+        return result
+
+    monkeypatch.setattr(git.Remote, "fetch", patched_fetch)
+
+    assert s.may_need_to_sync_to_original() is True
+    s.sync_to_original(all_branches=True)
+    assert s.may_need_to_sync_to_original() is False
+    assert (git_original_project / "sandbox_file.txt").read_text() == "sandbox file\n"
