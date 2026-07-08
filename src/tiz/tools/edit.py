@@ -16,6 +16,7 @@ class Edit(SocketTool):
                 "description": "Edit a file by replacing an old string with a new string.",
                 "parameters": {
                     "type": "object",
+                    "additionalProperties": False,
                     "properties": {
                         "path": {"type": "string", "description": "The file path"},
                         "old_string": {

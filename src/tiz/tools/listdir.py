@@ -16,6 +16,7 @@ class ListDir(SocketTool):
                 "description": "List directory contents with metadata.",
                 "parameters": {
                     "type": "object",
+                    "additionalProperties": False,
                     "properties": {
                         "path": {
                             "type": "string",

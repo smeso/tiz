@@ -17,6 +17,7 @@ class Grep(SocketTool):
                 "description": "Search for text patterns in files using grep or ripgrep.",
                 "parameters": {
                     "type": "object",
+                    "additionalProperties": False,
                     "properties": {
                         "pattern": {
                             "type": "string",

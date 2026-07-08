@@ -39,6 +39,7 @@ class WebSearch(SocketTool):
                 ),
                 "parameters": {
                     "type": "object",
+                    "additionalProperties": False,
                     "properties": {
                         "query": {
                             "type": "string",

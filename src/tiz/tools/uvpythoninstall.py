@@ -26,6 +26,7 @@ class UvPythonInstall(SocketTool):
                 ),
                 "parameters": {
                     "type": "object",
+                    "additionalProperties": False,
                     "properties": {
                         "version": {
                             "type": "string",

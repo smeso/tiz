@@ -16,6 +16,7 @@ class ReadFile(SocketTool):
                 "description": "Read a text file's contents. Each line is prefixed with its line number.",
                 "parameters": {
                     "type": "object",
+                    "additionalProperties": False,
                     "properties": {
                         "path": {"type": "string", "description": "The file path"},
                         "view_range": {

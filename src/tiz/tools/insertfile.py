@@ -16,6 +16,7 @@ class InsertFile(SocketTool):
                 "description": "Insert content into a file at a specific line number.",
                 "parameters": {
                     "type": "object",
+                    "additionalProperties": False,
                     "properties": {
                         "path": {"type": "string", "description": "The file path"},
                         "content": {

@@ -16,6 +16,7 @@ class Glob(SocketTool):
                 "description": "Search for files matching a glob pattern.",
                 "parameters": {
                     "type": "object",
+                    "additionalProperties": False,
                     "properties": {
                         "pattern": {
                             "type": "string",

@@ -51,6 +51,7 @@ class UvSync(SocketTool):
                 ),
                 "parameters": {
                     "type": "object",
+                    "additionalProperties": False,
                     "properties": {
                         "path": {
                             "type": "string",

@@ -18,6 +18,7 @@ class ReadMulti(SocketTool):
                 "description": "Read multiple files at once.",
                 "parameters": {
                     "type": "object",
+                    "additionalProperties": False,
                     "properties": {
                         "paths": {
                             "type": "array",

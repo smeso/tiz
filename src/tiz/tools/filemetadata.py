@@ -16,6 +16,7 @@ class FileMetadata(SocketTool):
                 "description": "Get metadata for a file or directory (type, size, permissions, timestamps).",
                 "parameters": {
                     "type": "object",
+                    "additionalProperties": False,
                     "properties": {
                         "path": {
                             "type": "string",

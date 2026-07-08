@@ -447,6 +447,7 @@ class WebFetch(SocketTool):
                 "description": "Fetch a URL via HTTP/HTTPS. Returns the response status, headers, and body content.",
                 "parameters": {
                     "type": "object",
+                    "additionalProperties": False,
                     "properties": {
                         "url": {
                             "type": "string",

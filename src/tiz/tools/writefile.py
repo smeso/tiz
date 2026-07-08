@@ -16,6 +16,7 @@ class WriteFile(SocketTool):
                 "description": "Write a text file's contents.",
                 "parameters": {
                     "type": "object",
+                    "additionalProperties": False,
                     "properties": {
                         "path": {"type": "string", "description": "The file path"},
                         "contents": {

@@ -18,6 +18,7 @@ class ApplyPatch(SocketTool):
                 "description": "Apply a patch file using the patch command.",
                 "parameters": {
                     "type": "object",
+                    "additionalProperties": False,
                     "properties": {
                         "patch": {"type": "string", "description": "The patch content"},
                         "strip": {
