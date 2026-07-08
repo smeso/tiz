@@ -267,9 +267,9 @@ class BaseTaskExecutor:
                     categories["tools_without_internet_access"].append(ts.name)
         return {k: ", ".join(v) for k, v in categories.items() if v}
 
-    def _resolve_sub_agent_prompt(self, sub_spec: SubagentSpec) -> str:
+    def _build_base_prompt_context(self, tools: list[ToolSpec]) -> dict[str, Any]:
+        """Build the common prompt context dict shared by task and sub-agent prompts."""
         meta = self.manifest.meta
-
         context: dict[str, Any] = {}
         now = datetime.now().astimezone()
         context["date"] = now.strftime("%Y-%m-%d")
@@ -280,8 +280,11 @@ class BaseTaskExecutor:
         context["committer_name"] = meta.committer_name
         context["committer_email"] = meta.committer_email
 
-        context.update(self._categorize_tools(sub_spec.tools))
+        context.update(self._categorize_tools(tools))
+        return context
 
+    def _resolve_sub_agent_prompt(self, sub_spec: SubagentSpec) -> str:
+        context = self._build_base_prompt_context(sub_spec.tools)
         return self._resolve_prompt_text(
             sub_spec.sys_prompt, sub_spec.sys_prompt_custom, extra_context=context
         )
@@ -723,11 +726,9 @@ class BaseTaskExecutor:
             raise last_exception from exc
 
     def resolve_prompt(self, task: TaskSpec, sandbox: SandboxDirs | None = None) -> str:
-        meta = self.manifest.meta
-
         project_dir = Path(sandbox.project_dir) if sandbox is not None else None
 
-        context: dict[str, Any] = {}
+        context = self._build_base_prompt_context(task.tools)
         if project_dir is not None and project_dir.exists():
             agents_path = project_dir / "AGENTS.md"
             if agents_path.is_file():
@@ -739,16 +740,6 @@ class BaseTaskExecutor:
         else:
             context["git_repo"] = "no"
             context["project_dir"] = ""
-        now = datetime.now().astimezone()
-        context["date"] = now.strftime("%Y-%m-%d")
-        context["datetime"] = now.isoformat()
-        context["uuid"] = str(uuid.uuid4())
-        context["general_shared_dir"] = CONTAINER_MOUNT_SHARED
-        context["own_shared_dir"] = CONTAINER_MOUNT_OWN_SHARED
-        context["committer_name"] = meta.committer_name
-        context["committer_email"] = meta.committer_email
-
-        context.update(self._categorize_tools(task.tools))
         return self._resolve_prompt_text(
             task.sys_prompt, task.sys_prompt_custom, extra_context=context
         )
