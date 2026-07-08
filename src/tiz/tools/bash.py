@@ -94,7 +94,7 @@ class Bash(SocketTool):
         ):
             return "ERROR: timeout must be an integer between 1 and 300"
         cwd = args.get("cwd")
-        if cwd is not None and not isinstance(cwd, str):
+        if cwd is not None and (not isinstance(cwd, str) or not cwd):
             return "ERROR: cwd must be a string"
         env = args.get("env")
         if env is not None and not isinstance(env, dict):

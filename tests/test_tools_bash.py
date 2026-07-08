@@ -209,10 +209,8 @@ class TestBashRunValidation:
 
     def test_cwd_empty_string(self, socket_path: str) -> None:
         tool = Bash(socket_path)
-        with patch.object(Bash, "_call", return_value="ok") as mock_call:
-            result = tool.run({"command": "echo hi", "cwd": ""})
-        assert result == "ok"
-        mock_call.assert_called_once_with({"command": "echo hi", "cwd": ""})
+        result = tool.run({"command": "echo hi", "cwd": ""})
+        assert result == "ERROR: cwd must be a string"
 
 
 class TestBashFormatConfirmation:
