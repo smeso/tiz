@@ -387,7 +387,30 @@ def _tool_grep(params: dict[str, Any]) -> tuple[str, bool]:
             cmd += ["-m", str(max_results), "--", pattern, str(resolved)]
         else:
             if glob_filter:
-                return "Error running grep: glob filtering is not available", True
+                # Use find to locate files matching the glob, then grep on them
+                find_cmd = ["find", str(resolved), "-type", "f", "-name", glob_filter]
+                try:
+                    find_result = subprocess.run(
+                        find_cmd, capture_output=True, text=True, check=True
+                    )
+                    files = find_result.stdout.splitlines()
+                    if not files:
+                        return "No matches", False
+                    grep_cmd = ["grep", "-rnH", "--color=never"]
+                    if not use_regex:
+                        grep_cmd.append("-F")
+                    if params.get("case_insensitive"):
+                        grep_cmd.append("-i")
+                    grep_cmd += ["-m", str(max_results), "--", pattern, "--"]
+                    grep_cmd += files
+                    result = subprocess.run(
+                        grep_cmd, capture_output=True, text=True, check=False
+                    )
+                    lines = result.stdout.splitlines()
+                    out = "\n".join(lines[:max_results])
+                    return out or "No matches", False
+                except subprocess.SubprocessError as exc:
+                    return f"Error running grep: {exc}", True
             cmd = ["grep", "-rn", "--color=never", "-m", str(max_results)]
             if not use_regex:
                 cmd.append("-F")

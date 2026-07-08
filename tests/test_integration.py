@@ -755,11 +755,7 @@ class TestGrepCoverage:
                 "glob": "*.py",
             }
         )
-        # glob filter works with rg; falls back to error when rg is unavailable
-        if "Error" in result:
-            assert "glob filtering is not available" in result
-        else:
-            assert result == f"{f}:1:hello world"
+        assert result == f"{f}:1:hello world"
 
     def test_grep_with_regex(self, sandbox_server, socket_path_server, tmp_path):
         from tiz.tools.grep import Grep
@@ -1134,7 +1130,7 @@ class TestGrepFallbackIntegration:
     def _setup_fallback_env(tmp_path):
         bindir = tmp_path / "bin"
         bindir.mkdir()
-        for name in ("which", "grep"):
+        for name in ("which", "grep", "find"):
             src = subprocess.run(
                 ["which", name], capture_output=True, text=True, check=True
             ).stdout.strip()
@@ -1267,6 +1263,7 @@ class TestGrepFallbackIntegration:
         try:
             f = tmp_path / "search.py"
             f.write_text("found in py\n", encoding="utf-8")
+            (tmp_path / "search.txt").write_text("found in txt\n", encoding="utf-8")
             resp = self._fallback_grep(
                 sock_path,
                 {
@@ -1275,7 +1272,122 @@ class TestGrepFallbackIntegration:
                     "glob": "*.py",
                 },
             )
-            assert "glob filtering is not available" in resp["result"]
+            assert f"{f}:1:found in py" == resp["result"]
+            assert resp["error"] is False
+        finally:
+            proc.send_signal(2)
+            proc.wait(timeout=5)
+
+    def test_grep_fallback_glob_filter_no_matches(self, tmp_path):
+        """Fallback grep with glob_filter and no matching files (line 398)."""
+        worker_path = (
+            Path(__file__).resolve().parent.parent / "src" / "tiz" / "sandbox_worker.py"
+        )
+        sock_path = str(tmp_path / "grep_gf_nomatch.sock")
+        env = self._setup_fallback_env(tmp_path)
+        proc = self._start_fallback_worker(worker_path, sock_path, env)
+        try:
+            # Create a .py file but search only *.txt via glob
+            (tmp_path / "search.py").write_text("found in py\n", encoding="utf-8")
+            resp = self._fallback_grep(
+                sock_path,
+                {
+                    "pattern": "found",
+                    "path": str(tmp_path),
+                    "glob": "*.txt",
+                },
+            )
+            assert resp["result"] == "No matches"
+            assert resp["error"] is False
+        finally:
+            proc.send_signal(2)
+            proc.wait(timeout=5)
+
+    def test_grep_fallback_glob_filter_case_insensitive(self, tmp_path):
+        """Fallback grep with glob_filter + case_insensitive (lines 400->403)."""
+        worker_path = (
+            Path(__file__).resolve().parent.parent / "src" / "tiz" / "sandbox_worker.py"
+        )
+        sock_path = str(tmp_path / "grep_gf_ci.sock")
+        env = self._setup_fallback_env(tmp_path)
+        proc = self._start_fallback_worker(worker_path, sock_path, env)
+        try:
+            f = tmp_path / "search.py"
+            f.write_text("HELLO WORLD\n", encoding="utf-8")
+            resp = self._fallback_grep(
+                sock_path,
+                {
+                    "pattern": "hello",
+                    "path": str(tmp_path),
+                    "glob": "*.py",
+                    "case_insensitive": True,
+                },
+            )
+            assert "HELLO WORLD" in resp["result"]
+            assert resp["error"] is False
+        finally:
+            proc.send_signal(2)
+            proc.wait(timeout=5)
+
+    def test_grep_fallback_glob_filter_regex(self, tmp_path):
+        """Fallback grep with glob_filter + regex=True (line 400->402 branch)."""
+        worker_path = (
+            Path(__file__).resolve().parent.parent / "src" / "tiz" / "sandbox_worker.py"
+        )
+        sock_path = str(tmp_path / "grep_gf_re.sock")
+        env = self._setup_fallback_env(tmp_path)
+        proc = self._start_fallback_worker(worker_path, sock_path, env)
+        try:
+            f = tmp_path / "search.py"
+            f.write_text("hello123\n", encoding="utf-8")
+            resp = self._fallback_grep(
+                sock_path,
+                {
+                    "pattern": r"hello[0-9]",
+                    "path": str(tmp_path),
+                    "glob": "*.py",
+                    "regex": True,
+                },
+            )
+            assert "hello123" in resp["result"]
+            assert resp["error"] is False
+        finally:
+            proc.send_signal(2)
+            proc.wait(timeout=5)
+
+    def test_grep_fallback_glob_filter_subprocess_error(self, tmp_path):
+        """Fallback grep with glob_filter and broken find (lines 412-413)."""
+        worker_path = (
+            Path(__file__).resolve().parent.parent / "src" / "tiz" / "sandbox_worker.py"
+        )
+        sock_path = str(tmp_path / "grep_gf_err.sock")
+        bindir = tmp_path / "bin_broken_find"
+        bindir.mkdir()
+        # Symlink which and grep normally
+        for name in ("which", "grep"):
+            src = subprocess.run(
+                ["which", name], capture_output=True, text=True, check=True
+            ).stdout.strip()
+            bindir.joinpath(name).symlink_to(src)
+        # Create a broken find that exits non-zero
+        (bindir / "find").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+        (bindir / "find").chmod(0o755)
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(Path(__file__).resolve().parent.parent)
+        env["PATH"] = str(bindir)
+        proc = self._start_fallback_worker(worker_path, sock_path, env)
+        try:
+            f = tmp_path / "search.txt"
+            f.write_text("some content\n", encoding="utf-8")
+            resp = self._fallback_grep(
+                sock_path,
+                {
+                    "pattern": "content",
+                    "path": str(tmp_path),
+                    "glob": "*.txt",
+                },
+            )
+            assert "Error running grep" in resp["result"]
             assert resp["error"] is True
         finally:
             proc.send_signal(2)

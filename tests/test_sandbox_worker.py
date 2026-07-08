@@ -1061,18 +1061,76 @@ def test_grep_fallback_regex_true(tmp_path: Path) -> None:
         tiz.sandbox_worker._HAS_RG = original
 
 
-def test_grep_fallback_glob_filter_error(tmp_path: Path) -> None:
+def test_grep_fallback_glob_filter(tmp_path: Path) -> None:
     original = tiz.sandbox_worker._HAS_RG
     tiz.sandbox_worker._HAS_RG = False
     try:
+        (tmp_path / "test.txt").write_text("match", encoding="utf-8")
+        (tmp_path / "test.py").write_text("match", encoding="utf-8")
         result, is_error = tiz.sandbox_worker._tool_grep(
             {
                 "path": str(tmp_path),
-                "pattern": "test",
+                "pattern": "match",
                 "glob": "*.txt",
             }
         )
-        assert "glob filtering is not available" in result
+        assert f"{tmp_path / 'test.txt'}:1:match" == result
+        assert is_error is False
+    finally:
+        tiz.sandbox_worker._HAS_RG = original
+
+
+def test_grep_fallback_glob_filter_no_matches(tmp_path: Path) -> None:
+    original = tiz.sandbox_worker._HAS_RG
+    tiz.sandbox_worker._HAS_RG = False
+    try:
+        (tmp_path / "test.txt").write_text("match", encoding="utf-8")
+        result, is_error = tiz.sandbox_worker._tool_grep(
+            {
+                "path": str(tmp_path),
+                "pattern": "match",
+                "glob": "*.xyz",
+            }
+        )
+        assert result == "No matches"
+        assert is_error is False
+    finally:
+        tiz.sandbox_worker._HAS_RG = original
+
+
+def test_grep_fallback_glob_filter_regex_case_insensitive(tmp_path: Path) -> None:
+    original = tiz.sandbox_worker._HAS_RG
+    tiz.sandbox_worker._HAS_RG = False
+    try:
+        (tmp_path / "test.txt").write_text("HELLO WORLD", encoding="utf-8")
+        result, is_error = tiz.sandbox_worker._tool_grep(
+            {
+                "path": str(tmp_path),
+                "pattern": "hello.*",
+                "regex": True,
+                "case_insensitive": True,
+                "glob": "*.txt",
+            }
+        )
+        assert f"{tmp_path / 'test.txt'}:1:HELLO WORLD" == result
+        assert is_error is False
+    finally:
+        tiz.sandbox_worker._HAS_RG = original
+
+
+def test_grep_fallback_glob_filter_subprocess_error(tmp_path: Path) -> None:
+    original = tiz.sandbox_worker._HAS_RG
+    tiz.sandbox_worker._HAS_RG = False
+    try:
+        with patch("subprocess.run", side_effect=subprocess.SubprocessError("fail")):
+            result, is_error = tiz.sandbox_worker._tool_grep(
+                {
+                    "path": str(tmp_path),
+                    "pattern": "test",
+                    "glob": "*.txt",
+                }
+            )
+        assert "Error running grep" in result
         assert is_error is True
     finally:
         tiz.sandbox_worker._HAS_RG = original
