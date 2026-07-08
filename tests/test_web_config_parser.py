@@ -9,6 +9,7 @@ import yaml
 
 from tiz.manifest_parser import Manifest
 from tiz.web_config_parser import (
+    MANIFEST_VERSION,
     EndpointConfig,
     WebConfig,
     parse_web_config,
@@ -38,11 +39,17 @@ def _prepare_manifest(tmp_path: Path, name: str = "manifest.yaml") -> Path:
     return mf
 
 
+def test_manifest_version_constant() -> None:
+    """MANIFEST_VERSION is \"0\"."""
+    assert MANIFEST_VERSION == "0"
+
+
 def test_parse_web_config_simple(tmp_path: Path) -> None:
     """Parse a config with one endpoint referencing an external manifest file."""
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -72,6 +79,7 @@ def test_parse_web_config_multiple_manifests(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path, "overrides.yaml")
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["base.yaml", "overrides.yaml"],
@@ -93,6 +101,7 @@ def test_parse_web_config_with_options(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -114,6 +123,7 @@ def test_parse_web_config_options_not_dict(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -132,6 +142,7 @@ def test_parse_web_config_with_all_fields(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -162,6 +173,7 @@ def test_parse_web_config_description(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -183,6 +195,7 @@ def test_parse_web_config_description_default_none(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -201,6 +214,7 @@ def test_parse_web_config_description_not_str(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config: dict[str, Any] = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -216,7 +230,7 @@ def test_parse_web_config_description_not_str(tmp_path: Path) -> None:
 
 def test_parse_web_config_empty_endpoints(tmp_path: Path) -> None:
     """Parse a config with no endpoints."""
-    config: dict[str, Any] = {"endpoints": {}}
+    config: dict[str, Any] = {"meta": {"version": "0"}, "endpoints": {}}
     config_file = tmp_path / "web_config.yaml"
     _write_yaml(config_file, config)
 
@@ -277,9 +291,71 @@ def test_parse_web_config_is_directory(tmp_path: Path) -> None:
         parse_web_config(tmp_path, tmp_path)
 
 
+def test_parse_web_config_missing_meta(tmp_path: Path) -> None:
+    """Missing meta raises ValueError."""
+    config: dict[str, Any] = {
+        "endpoints": {},
+    }
+    config_file = tmp_path / "web_config.yaml"
+    _write_yaml(config_file, config)
+    with pytest.raises(ValueError, match="missing required 'meta'"):
+        parse_web_config(tmp_path, config_file)
+
+
+def test_parse_web_config_meta_not_dict(tmp_path: Path) -> None:
+    """Non-dict meta raises TypeError."""
+    config: dict[str, Any] = {
+        "meta": "not a dict",
+        "endpoints": {},
+    }
+    config_file = tmp_path / "web_config.yaml"
+    _write_yaml(config_file, config)
+    with pytest.raises(TypeError, match="'meta' must be a dict"):
+        parse_web_config(tmp_path, config_file)
+
+
+def test_parse_web_config_meta_missing_version(tmp_path: Path) -> None:
+    """Missing meta.version raises ValueError."""
+    config: dict[str, Any] = {
+        "meta": {},
+        "endpoints": {},
+    }
+    config_file = tmp_path / "web_config.yaml"
+    _write_yaml(config_file, config)
+    with pytest.raises(ValueError, match="missing required 'version'"):
+        parse_web_config(tmp_path, config_file)
+
+
+def test_parse_web_config_meta_version_not_str(tmp_path: Path) -> None:
+    """Non-string meta.version raises TypeError."""
+    config: dict[str, Any] = {
+        "meta": {"version": 0},
+        "endpoints": {},
+    }
+    config_file = tmp_path / "web_config.yaml"
+    _write_yaml(config_file, config)
+    with pytest.raises(TypeError, match="'meta.version' must be a string"):
+        parse_web_config(tmp_path, config_file)
+
+
+def test_parse_web_config_unsupported_meta_version(tmp_path: Path) -> None:
+    """Unsupported meta.version raises ValueError."""
+    config: dict[str, Any] = {
+        "meta": {"version": "1"},
+        "endpoints": {},
+    }
+    config_file = tmp_path / "web_config.yaml"
+    _write_yaml(config_file, config)
+    with pytest.raises(ValueError, match=r"Unsupported meta version '1', expected '0'"):
+        parse_web_config(tmp_path, config_file)
+
+
 def test_parse_web_config_endpoints_not_dict(tmp_path: Path) -> None:
     """Non-dict endpoints raises TypeError."""
-    config: dict[str, Any] = {"endpoints": ["not", "a", "dict"]}
+    config: dict[str, Any] = {
+        "meta": {"version": "0"},
+        "endpoints": ["not", "a", "dict"],
+    }
     config_file = tmp_path / "web_config.yaml"
     _write_yaml(config_file, config)
     with pytest.raises(TypeError, match="'endpoints' must be a dict"):
@@ -289,6 +365,7 @@ def test_parse_web_config_endpoints_not_dict(tmp_path: Path) -> None:
 def test_parse_web_config_endpoint_not_dict(tmp_path: Path) -> None:
     """Endpoint config that is not a dict raises TypeError."""
     config: dict[str, Any] = {
+        "meta": {"version": "0"},
         "endpoints": {"chat1": "just a string"},
     }
     config_file = tmp_path / "web_config.yaml"
@@ -300,6 +377,7 @@ def test_parse_web_config_endpoint_not_dict(tmp_path: Path) -> None:
 def test_parse_web_config_missing_manifests_key(tmp_path: Path) -> None:
     """Missing 'manifests' key raises ValueError."""
     config: dict[str, Any] = {
+        "meta": {"version": "0"},
         "endpoints": {"chat1": {}},
     }
     config_file = tmp_path / "web_config.yaml"
@@ -311,6 +389,7 @@ def test_parse_web_config_missing_manifests_key(tmp_path: Path) -> None:
 def test_parse_web_config_manifests_not_list(tmp_path: Path) -> None:
     """Manifests that is not a list raises TypeError."""
     config: dict[str, Any] = {
+        "meta": {"version": "0"},
         "endpoints": {"chat1": {"manifests": "not a list"}},
     }
     config_file = tmp_path / "web_config.yaml"
@@ -322,6 +401,7 @@ def test_parse_web_config_manifests_not_list(tmp_path: Path) -> None:
 def test_parse_web_config_manifest_entry_not_string(tmp_path: Path) -> None:
     """A manifest entry that is not a string raises TypeError."""
     config: dict[str, Any] = {
+        "meta": {"version": "0"},
         "endpoints": {"chat1": {"manifests": [12345]}},
     }
     config_file = tmp_path / "web_config.yaml"
@@ -335,6 +415,7 @@ def test_parse_web_config_context_not_dict(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config: dict[str, Any] = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -353,6 +434,7 @@ def test_parse_web_config_task_name_not_str(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config: dict[str, Any] = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -374,6 +456,7 @@ def test_parse_web_config_manifest_from_subdir(tmp_path: Path) -> None:
     _write_yaml(manifest_file, _make_valid_manifest_dict())
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {"manifests": ["chat.yaml"]},
         },
@@ -391,6 +474,7 @@ def test_parse_web_config_context_is_copied(tmp_path: Path) -> None:
 
     original_context: dict[str, Any] = {"key": "value"}
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -414,6 +498,7 @@ def test_parse_web_config_preserves_empty_context(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -433,6 +518,7 @@ def test_parse_web_config_string_path(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {"manifests": ["manifest.yaml"]},
         },
@@ -447,6 +533,7 @@ def test_parse_web_config_string_path(tmp_path: Path) -> None:
 def test_parse_web_config_manifest_not_found(tmp_path: Path) -> None:
     """A manifest file that doesn't exist raises ValueError."""
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {"manifests": ["nonexistent.yaml"]},
         },
@@ -464,6 +551,7 @@ def test_parse_web_config_merged_manifests(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path, "b.yaml")
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "alpha": {"manifests": ["a.yaml"], "task_name": "task_a"},
             "beta": {"manifests": ["b.yaml"], "task_name": "task_b"},
@@ -483,6 +571,7 @@ def test_parse_web_config_endpoint_static_dir_override(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -504,6 +593,7 @@ def test_parse_web_config_endpoint_static_dir_inherits_global(tmp_path: Path) ->
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -523,6 +613,7 @@ def test_parse_web_config_endpoint_static_dir_fallback_package(tmp_path: Path) -
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -543,6 +634,7 @@ def test_parse_web_config_static_dir_not_str(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config: dict[str, Any] = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -561,6 +653,7 @@ def test_parse_web_config_static_dir_not_str_list(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config: dict[str, Any] = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -579,6 +672,7 @@ def test_parse_web_config_static_dir_none(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config: dict[str, Any] = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -600,6 +694,7 @@ def test_parse_web_config_endpoint_static_dir_not_str(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config: dict[str, Any] = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -647,6 +742,7 @@ def test_parse_web_config_suggestions_default(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -665,6 +761,7 @@ def test_parse_web_config_suggestions_parsed(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -684,6 +781,7 @@ def test_parse_web_config_suggestions_not_list(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -703,6 +801,7 @@ def test_parse_web_config_suggestions_entry_not_str(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -723,6 +822,7 @@ def test_parse_web_config_suggestions_copied(tmp_path: Path) -> None:
 
     original: list[str] = ["hello", "world"]
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -745,6 +845,7 @@ def test_parse_web_config_suggestions_empty_list(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -764,6 +865,7 @@ def test_parse_web_config_auth_headers_default(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -782,6 +884,7 @@ def test_parse_web_config_auth_headers_parsed(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -807,6 +910,7 @@ def test_parse_web_config_auth_headers_not_dict(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -826,6 +930,7 @@ def test_parse_web_config_auth_headers_key_not_str(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -845,6 +950,7 @@ def test_parse_web_config_auth_headers_value_not_str(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -866,6 +972,7 @@ def test_parse_web_config_auth_headers_empty_dict(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -886,6 +993,7 @@ def test_parse_web_config_auth_headers_copied(tmp_path: Path) -> None:
 
     original: dict[str, str] = {"Authorization": "Bearer token"}
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -908,6 +1016,7 @@ def test_parse_web_config_auth_headers_with_all_fields(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -944,6 +1053,7 @@ def test_parse_web_config_endpoint_name_not_str(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             123: {
                 "manifests": ["manifest.yaml"],
@@ -961,6 +1071,7 @@ def test_parse_web_config_context_key_not_str(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -979,6 +1090,7 @@ def test_parse_web_config_relative_static_dir(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -999,6 +1111,7 @@ def test_parse_web_config_absolute_static_dir(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -1018,6 +1131,7 @@ def test_parse_web_config_context_value_not_str(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config: dict[str, Any] = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -1049,6 +1163,7 @@ def test_parse_web_config_default_options_none(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -1070,6 +1185,7 @@ def test_parse_web_config_default_options_empty_dict(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -1090,6 +1206,7 @@ def test_parse_web_config_default_options_override(tmp_path: Path) -> None:
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -1112,6 +1229,7 @@ def test_parse_web_config_default_options_with_endpoint_options(tmp_path: Path) 
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -1141,6 +1259,7 @@ def test_parse_web_config_static_dir_empty_string_raises(tmp_path: Path) -> None
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -1165,6 +1284,7 @@ def test_parse_web_config_unknown_endpoint_key_is_silent(tmp_path: Path) -> None
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -1187,6 +1307,7 @@ def test_parse_web_config_unknown_top_level_key_is_silent(tmp_path: Path) -> Non
     _prepare_manifest(tmp_path)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["manifest.yaml"],
@@ -1223,6 +1344,7 @@ def test_parse_web_config_multiple_manifests_merged_content(tmp_path: Path) -> N
     _write_yaml(d / "overrides.yaml", override_manifest)
 
     config = {
+        "meta": {"version": "0"},
         "endpoints": {
             "chat1": {
                 "manifests": ["base.yaml", "overrides.yaml"],
@@ -1244,8 +1366,3 @@ def test_parse_web_config_multiple_manifests_merged_content(tmp_path: Path) -> N
     assert ep.manifest.meta.color is True
     # 'color' explicitly set to None in override -> picks base value of True
     assert ep.manifest.meta.color is True
-
-
-# ──────────────────────────────────────────────
-# Bug-fix tests – verify base_path in existing tests
-# ──────────────────────────────────────────────

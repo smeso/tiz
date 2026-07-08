@@ -11,7 +11,14 @@ import yaml
 from tiz.helpers import parse_manifest as _parse_manifest
 from tiz.manifest_parser import Manifest
 
-__all__ = ["EndpointConfig", "WebConfig", "parse_web_config"]
+__all__ = [
+    "EndpointConfig",
+    "MANIFEST_VERSION",
+    "WebConfig",
+    "parse_web_config",
+]
+
+MANIFEST_VERSION = "0"
 
 _STATIC_DIR_FALLBACK = Path(__file__).resolve().parent / "data" / "web_static"
 
@@ -51,6 +58,8 @@ def parse_web_config(
 
     .. code-block:: yaml
 
+        meta:
+          version: "0"
         endpoints:
           chat1:
             manifests:
@@ -82,6 +91,23 @@ def parse_web_config(
         raise ValueError(f"Web config file is empty: {config_path}")
     if not isinstance(raw, dict):
         raise TypeError(f"Web config must be a dict, got {type(raw).__name__}")
+
+    meta_raw = raw.get("meta")
+    if meta_raw is None:
+        raise ValueError("Web config is missing required 'meta' field")
+    if not isinstance(meta_raw, dict):
+        raise TypeError(f"'meta' must be a dict, got {type(meta_raw).__name__}")
+    version_raw = meta_raw.get("version")
+    if version_raw is None:
+        raise ValueError("Web config 'meta' is missing required 'version' field")
+    if not isinstance(version_raw, str):
+        raise TypeError(
+            f"'meta.version' must be a string, got {type(version_raw).__name__}"
+        )
+    if version_raw != MANIFEST_VERSION:
+        raise ValueError(
+            f"Unsupported meta version {version_raw!r}, expected {MANIFEST_VERSION!r}"
+        )
 
     endpoints_raw = raw.get("endpoints", {})
     if not isinstance(endpoints_raw, dict):

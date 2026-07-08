@@ -3774,7 +3774,7 @@ def test_run_simple_with_endpoints_and_app_holder(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     config_path.write_text(
-        f"endpoints:\n  test:\n    manifests:\n      - {manifest_file}\n",
+        f'meta:\n  version: "0"\nendpoints:\n  test:\n    manifests:\n      - {manifest_file}\n',
         encoding="utf-8",
     )
 

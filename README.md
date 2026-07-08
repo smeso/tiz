@@ -366,6 +366,8 @@ tiz run -m ds4 -m manifest.yaml
 For the web interface, you will need a couple of other manifests:
 
 ```yaml
+meta:
+  version: "0"
 endpoints:
   chat:
     description: basic chat
@@ -592,6 +594,8 @@ The web mode uses a separate configuration file (`web.yaml`) that defines
 one or more HTTP endpoints, each with its own manifest and options.
 
 ```yaml
+meta:
+  version: "0"
 endpoints:
   chat:
     description: basic chat
