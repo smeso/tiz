@@ -1620,7 +1620,7 @@ def test_read_multi_not_found(tmp_path: Path) -> None:
     assert entries[0]["content"] == "data"
     assert entries[1]["content"] is None
     assert "not found" in entries[1]["error"]
-    assert is_error is False
+    assert is_error is True
 
 
 def test_read_multi_invalid_paths_type() -> None:
@@ -1644,7 +1644,7 @@ def test_read_multi_file_too_large(tmp_path: Path) -> None:
     entries = json.loads(result)
     assert entries[0]["content"] is None
     assert "too large" in entries[0]["error"]
-    assert is_error is False
+    assert is_error is True
 
 
 def test_read_multi_oserror(tmp_path: Path) -> None:
@@ -1655,7 +1655,7 @@ def test_read_multi_oserror(tmp_path: Path) -> None:
     data = json.loads(result)
     assert data[0]["content"] is None
     assert data[0]["error"] is not None
-    assert is_error is False
+    assert is_error is True
 
 
 # ---- _tool_metadata ----

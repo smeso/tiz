@@ -474,7 +474,9 @@ class TestReadMultiIntegration:
         f.write_text("data", encoding="utf-8")
         tool = ReadMulti(socket_path_server)
         result = tool.run({"paths": [str(f), "/nonexistent_file_xyz"]})
-        entries = json.loads(result)
+        assert result.startswith("ERROR: ")
+        json_part = result[len("ERROR: ") :]
+        entries = json.loads(json_part)
         assert len(entries) == 2
         assert entries[0]["content"] == "data"
         assert entries[1]["content"] is None
@@ -980,7 +982,9 @@ class TestReadMultiCoverage:
         f.write_text("x" * (1024 * 1024 + 1), encoding="utf-8")
         tool = ReadMulti(socket_path_server)
         result = tool.run({"paths": [str(f)]})
-        entries = json.loads(result)
+        assert result.startswith("ERROR: ")
+        json_part = result[len("ERROR: ") :]
+        entries = json.loads(json_part)
         assert entries[0]["content"] is None
         assert "File too large" in entries[0]["error"]
 
@@ -1098,7 +1102,9 @@ class TestOSErrorCoverage:
 
         tool = ReadMulti(socket_path_server)
         result = tool.run({"paths": ["/proc/self/mem"]})
-        entries = json.loads(result)
+        assert result.startswith("ERROR: ")
+        json_part = result[len("ERROR: ") :]
+        entries = json.loads(json_part)
         assert entries[0]["content"] is None
         assert entries[0]["error"] is not None
 

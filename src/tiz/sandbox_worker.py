@@ -605,7 +605,8 @@ def _tool_read_multi(params: dict[str, Any]) -> tuple[str, bool]:
         except OSError as exc:
             results.append({"path": str(resolved), "content": None, "error": str(exc)})
 
-    return json.dumps(results, indent=2), False
+    has_error = any(r.get("error") is not None for r in results)
+    return json.dumps(results, indent=2), has_error
 
 
 def _tool_metadata(params: dict[str, Any]) -> tuple[str, bool]:
