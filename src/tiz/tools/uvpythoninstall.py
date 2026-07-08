@@ -64,6 +64,5 @@ class UvPythonInstall(SocketTool):
             or timeout > 600
         ):
             return "ERROR: timeout must be an integer between 1 and 600"
-        args.pop("description", None)
-        args.pop("name", None)
+        self._pop_name_desc(args)
         return self._call(args)

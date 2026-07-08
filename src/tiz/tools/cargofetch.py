@@ -61,6 +61,5 @@ class CargoFetch(SocketTool):
             return "ERROR: timeout must be an integer between 1 and 600"
         call_args = dict(args)
         call_args.setdefault("timeout", 300)
-        call_args.pop("name", None)
-        call_args.pop("description", None)
+        self._pop_name_desc(call_args)
         return self._call(call_args)

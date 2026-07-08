@@ -60,6 +60,5 @@ class ReadFile(SocketTool):
             if view_range[0] > view_range[1]:
                 return "ERROR: view_range[0] must be <= view_range[1]"
         call_args = dict(args)
-        call_args.pop("name", None)
-        call_args.pop("description", None)
+        self._pop_name_desc(call_args)
         return self._call(call_args)

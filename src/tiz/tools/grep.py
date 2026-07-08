@@ -100,6 +100,5 @@ class Grep(SocketTool):
             or max_results > 10000
         ):
             return "ERROR: max_results must be an integer between 1 and 10000"
-        call_args.pop("name", None)
-        call_args.pop("description", None)
+        self._pop_name_desc(call_args)
         return self._call(call_args)

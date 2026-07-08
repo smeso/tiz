@@ -111,6 +111,5 @@ class UvSync(SocketTool):
                 call_args["extra"] = _normalize_list(call_args["extra"])
             except ValueError as e:
                 return f"ERROR: extra {e}"
-        call_args.pop("description", None)
-        call_args.pop("name", None)
+        self._pop_name_desc(call_args)
         return self._call(call_args)

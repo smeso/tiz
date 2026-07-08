@@ -66,6 +66,5 @@ class ListDir(SocketTool):
         if not isinstance(show_hidden, bool):
             return "ERROR: show_hidden must be a boolean"
         call_args = dict(args)
-        call_args.pop("description", None)
-        call_args.pop("name", None)
+        self._pop_name_desc(call_args)
         return self._call(call_args)

@@ -34,6 +34,12 @@ class Tool(ABC):
         """Return the tool's function name."""
         ...
 
+    @staticmethod
+    def _pop_name_desc(args: dict[str, Any]) -> None:
+        """Remove 'name' and 'description' keys from args (for _call forwarding)."""
+        args.pop("name", None)
+        args.pop("description", None)
+
     @abstractmethod
     def run(self, args: dict[str, Any]) -> str:  # pragma: no cover
         """Execute the tool with the given arguments."""

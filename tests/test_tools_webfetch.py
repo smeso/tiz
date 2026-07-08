@@ -774,15 +774,15 @@ class TestWebFetchRunValidation:
         call_args = mock_call.call_args[0][0]
         assert "name" not in call_args
 
-    def test_description_kept_in_call_args(self, socket_path: str) -> None:
-        """WebFetch does not strip description; it's passed through to _call."""
+    def test_description_is_removed_from_call_args(self, socket_path: str) -> None:
+        """WebFetch now strips description consistently with other tools."""
         tool = WebFetch(socket_path)
         args = {"url": "https://example.com", "description": "some desc"}
         with patch.object(WebFetch, "_call", return_value="ok") as mock_call:
             result = tool.run(args)
         assert result == "ok"
         call_args = mock_call.call_args[0][0]
-        assert "description" in call_args
+        assert "description" not in call_args
 
     def test_raw_flag_passed(self, socket_path: str) -> None:
         tool = WebFetch(socket_path)

@@ -57,6 +57,5 @@ class Glob(SocketTool):
         if "path" in args and len(args["path"]) > MAX_INPUT_SIZE:
             return "ERROR: path exceeds maximum allowed size"
         call_args = dict(args)
-        call_args.pop("name", None)
-        call_args.pop("description", None)
+        self._pop_name_desc(call_args)
         return self._call(call_args)

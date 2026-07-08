@@ -528,8 +528,7 @@ class WebFetch(SocketTool):
         if not isinstance(to_markdown, bool):
             return "ERROR: to_markdown must be a boolean"
         args.setdefault("user_agent", self.user_agent)
-        if "name" in args:
-            del args["name"]
+        self._pop_name_desc(args)
         result = self._call(args)
         if to_markdown and isinstance(result, str) and not result.startswith("ERROR:"):
             try:

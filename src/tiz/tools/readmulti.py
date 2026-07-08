@@ -56,6 +56,5 @@ class ReadMulti(SocketTool):
         if len(args["paths"]) > MAX_PATHS:
             return f"ERROR: {self.fname()} allows a maximum of {MAX_PATHS} paths"
         call_args = dict(args)
-        call_args.pop("description", None)
-        call_args.pop("name", None)
+        self._pop_name_desc(call_args)
         return self._call(call_args)

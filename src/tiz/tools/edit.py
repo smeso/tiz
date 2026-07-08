@@ -76,6 +76,5 @@ class Edit(SocketTool):
             if isinstance(er, bool) or not isinstance(er, int) or er < -1 or er == 0:
                 return "ERROR: expected_replacements must be -1 or an integer greater than 0"
         call_args = dict(args)
-        call_args.pop("name", None)
-        call_args.pop("description", None)
+        self._pop_name_desc(call_args)
         return self._call(call_args)

@@ -66,6 +66,5 @@ class InsertFile(SocketTool):
                     "ERROR: line_number must be -1 (end of file) or a positive integer"
                 )
         call_args = dict(args)
-        call_args.pop("name", None)
-        call_args.pop("description", None)
+        self._pop_name_desc(call_args)
         return self._call(call_args)
