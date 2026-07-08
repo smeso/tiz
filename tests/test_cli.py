@@ -53,6 +53,8 @@ from tiz.cli import (
     main,
 )
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 # ---------------------------------------------------------------------------
 # _parse_hex_color tests
 # ---------------------------------------------------------------------------
@@ -5132,7 +5134,7 @@ print('OK')
         capture_output=True,
         text=True,
         env={"PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": "src"},
-        cwd="/opt/project",
+        cwd=_PROJECT_ROOT,
     )
     assert p.returncode == 0, f"stdout: {p.stdout}, stderr: {p.stderr}"
 
@@ -5224,6 +5226,6 @@ with open('/dev/null', 'w') as f:
         capture_output=True,
         text=True,
         env={"PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": "src", "NO_COLOR": "1"},
-        cwd="/opt/project",
+        cwd=_PROJECT_ROOT,
     )
     assert p.returncode == 1
