@@ -1091,5 +1091,5 @@ def main() -> None:
             socket_p.unlink()
 
 
-if __name__ == "__main__":  # pragma: no branch
+if __name__ == "__main__":  # pragma: no cover
     main()
