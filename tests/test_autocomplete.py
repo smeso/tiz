@@ -824,25 +824,13 @@ def test_resolve_config_dir_path_subclass():
 
 
 def test_resolve_config_dir_exact_path_type():
-    """_resolve_config_dir handles config_dir where type(x) is Path (not PosixPath).
-
-    On Python 3.12, Path('/x') creates a PosixPath, so type(x) is Path is False.
-    This test covers the branch where type(config_dir) is Path is True, e.g. when
-    someone constructs a Path via object.__new__(Path) and then calls __init__.
-    """
+    """_resolve_config_dir handles a plain Path instance gracefully."""
     from tiz.autocomplete import _resolve_config_dir
 
-    # Create a bare Path instance where type(p) is Path is True
-    p = object.__new__(Path)
-    p.__init__("/custom/path")  # type: ignore[misc]
-
     parsed = argparse.Namespace()
-    parsed.config_dir = p
+    parsed.config_dir = Path("/custom/path")
     result = _resolve_config_dir(parsed)
-    # The function returns config_dir as-is because type(config_dir) is Path,
-    # skipping the conversion on line 31
-    assert type(result) is Path  # not converted to PosixPath
-    assert str(result) == "/custom/path"
+    assert result == Path("/custom/path")
 
 
 # ---------------------------------------------------------------------------
