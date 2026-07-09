@@ -842,7 +842,7 @@ def test_resolve_config_dir_exact_path_type():
     # The function returns config_dir as-is because type(config_dir) is Path,
     # skipping the conversion on line 31
     assert type(result) is Path  # not converted to PosixPath
-    assert result == Path("/custom/path")
+    assert str(result) == "/custom/path"
 
 
 # ---------------------------------------------------------------------------
