@@ -92,7 +92,7 @@ class Chat:
             ]
 
         self.append("system", self.sys_prompt)
-        self.ctx_size = self.client.get_context_size()
+        self.ctx_size: int | None = None
         if not 0 < ctx_ratio <= 1:
             raise ValueError(f"ctx_ratio must be in (0, 1], got {ctx_ratio}")
         self.ctx_ratio = ctx_ratio
@@ -707,6 +707,8 @@ class Chat:
         Returns:
             The LLM response dict.
         """
+        if self.ctx_size is None:
+            self.ctx_size = self.client.get_context_size()
         data = self._build_request_data()
         tcount = self.client.count_tokens(data["messages"])
 

@@ -148,7 +148,7 @@ def test_chat_init_defaults():
     assert chat.tools is None
     assert chat.tool_definitions == []
     assert chat.conversion_sandbox is None
-    assert chat.ctx_size == 4096
+    assert chat.ctx_size is None
     assert chat.ctx_ratio == 0.9
 
 
