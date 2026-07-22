@@ -25,6 +25,7 @@ from jinja2 import Environment, StrictUndefined, UndefinedError
 from tiz.chat import Chat
 from tiz.conversion_sandbox import ConversionSandbox
 from tiz.inference_clients import (
+    AnthropicClient,
     DwarfStar4,
     InferenceClient,
     LlamaCpp,
@@ -676,6 +677,16 @@ class BaseTaskExecutor:
                 default_model=model,
                 sampling_params=engine_spec.sampling_params,
                 preserve_thinking=engine_spec.preserve_thinking,
+            )
+        if et in ("anthropic", "claude"):
+            model = engine_spec.model or "claude-sonnet-5"
+            return AnthropicClient(
+                api_key=engine_spec.api_key or "",
+                default_model=model,
+                sampling_params=engine_spec.sampling_params,
+                preserve_thinking=engine_spec.preserve_thinking,
+                timeout=engine_spec.timeout,
+                message_timeout=engine_spec.message_timeout,
             )
         raise ValueError(f"Unknown inference engine type: {engine_spec.engine_type}")
 

@@ -4,6 +4,7 @@
 import json
 import os
 import time
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,6 +12,7 @@ import requests
 
 from tiz.inference_clients import (
     USER_AGENT,
+    AnthropicClient,
     DwarfStar4,
     InferenceClient,
     LlamaCpp,
@@ -3007,3 +3009,1770 @@ class TestDwarfStar4InitHostValidation:
     def test_init_empty_host_falls_back_to_default(self):
         client = DwarfStar4(host="")
         assert client.base_url == "http://127.0.0.1:8080"
+
+
+# ===========================================================================
+# AnthropicClient tests
+# ===========================================================================
+
+
+class TestAnthropicClientInit:
+    def test_init_default_values(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        assert client.api_key == "sk-ant-test"
+        assert client._default_model == "claude-sonnet-5"
+        assert client.timeout == 60.0
+        assert client.message_timeout is None
+        assert client.url == "https://api.anthropic.com/v1/messages"
+        assert client.headers["x-api-key"] == "sk-ant-test"
+        assert client.headers["anthropic-version"] == "2023-06-01"
+        assert client.headers["Content-Type"] == "application/json"
+        assert client._preserve_thinking is False
+        assert client.sampling_params == {}
+
+    def test_init_custom_model_and_params(self):
+        client = AnthropicClient(
+            api_key="sk-ant-test",
+            default_model="claude-opus-4-20250514",
+            sampling_params={"temperature": 0.5, "max_tokens": 8192},
+            preserve_thinking=True,
+            timeout=120.0,
+            message_timeout=300.0,
+        )
+        assert client._default_model == "claude-opus-4-20250514"
+        assert client.sampling_params == {"temperature": 0.5, "max_tokens": 8192}
+        assert client.preserve_thinking is True
+        assert client.timeout == 120.0
+        assert client.message_timeout == 300.0
+
+
+class TestAnthropicClientConvertMessages:
+    def test_system_message_single(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        system, msgs = client._convert_messages(
+            [{"role": "system", "content": "You are a helpful assistant."}]
+        )
+        assert system == "You are a helpful assistant."
+        assert msgs == []
+
+    def test_system_message_with_user_message(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        system, msgs = client._convert_messages(
+            [
+                {"role": "system", "content": "You are helpful."},
+                {"role": "user", "content": "Hello"},
+            ]
+        )
+        assert system == "You are helpful."
+        assert msgs == [{"role": "user", "content": "Hello"}]
+
+    def test_multiple_system_messages(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        system, msgs = client._convert_messages(
+            [
+                {"role": "system", "content": "First."},
+                {"role": "system", "content": "Second."},
+                {"role": "user", "content": "Hi"},
+            ]
+        )
+        assert system == [
+            {"type": "text", "text": "First."},
+            {"type": "text", "text": "Second."},
+        ]
+        assert msgs == [{"role": "user", "content": "Hi"}]
+
+    def test_tool_result_message(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        system, msgs = client._convert_messages(
+            [
+                {"role": "user", "content": "Hi"},
+                {"role": "assistant", "content": "Let me search"},
+                {
+                    "role": "tool",
+                    "content": "Result data",
+                    "tool_call_id": "tc_123",
+                },
+            ]
+        )
+        assert msgs == [
+            {"role": "user", "content": "Hi"},
+            {"role": "assistant", "content": "Let me search"},
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "tc_123",
+                        "content": "Result data",
+                    }
+                ],
+            },
+        ]
+
+    def test_assistant_with_tool_calls(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        system, msgs = client._convert_messages(
+            [
+                {"role": "user", "content": "Search"},
+                {
+                    "role": "assistant",
+                    "content": "I will search",
+                    "tool_calls": [
+                        {
+                            "id": "tc_1",
+                            "type": "function",
+                            "function": {
+                                "name": "search",
+                                "arguments": '{"q": "test"}',
+                            },
+                        }
+                    ],
+                },
+            ]
+        )
+        assert msgs == [
+            {"role": "user", "content": "Search"},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "I will search"},
+                    {
+                        "type": "tool_use",
+                        "id": "tc_1",
+                        "name": "search",
+                        "input": {"q": "test"},
+                    },
+                ],
+            },
+        ]
+
+    def test_assistant_tool_calls_no_content(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        system, msgs = client._convert_messages(
+            [
+                {"role": "user", "content": "Search"},
+                {
+                    "role": "assistant",
+                    "tool_calls": [
+                        {
+                            "id": "tc_1",
+                            "type": "function",
+                            "function": {"name": "search", "arguments": "{}"},
+                        }
+                    ],
+                },
+            ]
+        )
+        assert msgs == [
+            {"role": "user", "content": "Search"},
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "tc_1",
+                        "name": "search",
+                        "input": {},
+                    }
+                ],
+            },
+        ]
+
+    def test_assistant_tool_calls_malformed_json_args(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        system, msgs = client._convert_messages(
+            [
+                {"role": "user", "content": "Search"},
+                {
+                    "role": "assistant",
+                    "tool_calls": [
+                        {
+                            "id": "tc_1",
+                            "type": "function",
+                            "function": {
+                                "name": "search",
+                                "arguments": "not-json",
+                            },
+                        }
+                    ],
+                },
+            ]
+        )
+        assert msgs == [
+            {"role": "user", "content": "Search"},
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "tc_1",
+                        "name": "search",
+                        "input": {},
+                    }
+                ],
+            },
+        ]
+
+    def test_regular_user_assistant_messages(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        system, msgs = client._convert_messages(
+            [
+                {"role": "user", "content": "Hello"},
+                {"role": "assistant", "content": "Hi there!"},
+            ]
+        )
+        assert system is None
+        assert msgs == [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there!"},
+        ]
+
+    def test_empty_system_content_no_system(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        system, msgs = client._convert_messages(
+            [{"role": "system", "content": ""}, {"role": "user", "content": "Hi"}]
+        )
+        assert system is None
+        assert msgs == [{"role": "user", "content": "Hi"}]
+
+    def test_tool_result_no_tool_call_id(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        system, msgs = client._convert_messages([{"role": "tool", "content": "result"}])
+        assert msgs == [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "", "content": "result"}
+                ],
+            }
+        ]
+
+
+class TestAnthropicClientConvertTools:
+    def test_convert_tools_empty(self):
+        result = AnthropicClient._convert_tools([])
+        assert result == []
+
+    def test_convert_tools_basic(self):
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "search",
+                    "description": "Search the web",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"q": {"type": "string"}},
+                    },
+                },
+            }
+        ]
+        result = AnthropicClient._convert_tools(tools)
+        assert result == [
+            {
+                "name": "search",
+                "description": "Search the web",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"q": {"type": "string"}},
+                },
+            }
+        ]
+
+    def test_convert_tools_without_function_type(self):
+        tools = [{"type": "not_function", "name": "test"}]
+        result = AnthropicClient._convert_tools(tools)
+        assert result == []
+
+    def test_convert_tools_missing_fields(self):
+        tools = [{"type": "function", "function": {}}]
+        result = AnthropicClient._convert_tools(tools)
+        assert result == [
+            {
+                "name": "",
+                "description": "",
+                "input_schema": {},
+            }
+        ]
+
+
+class TestAnthropicClientBackoffDelay:
+    def test_backoff_delay_first_retry(self):
+        delay = AnthropicClient._backoff_delay(1)
+        assert 2 <= delay < 3
+
+    def test_backoff_delay_clamped_at_60(self):
+        delay = AnthropicClient._backoff_delay(10)
+        assert 60 <= delay < 61
+
+    def test_backoff_delay_zero_retries(self):
+        delay = AnthropicClient._backoff_delay(0)
+        assert 1 <= delay < 2
+
+
+class TestAnthropicClientGetModels:
+    def test_get_models_returns_default(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        models = client.get_models()
+        assert models == ["claude-sonnet-5"]
+
+    def test_get_models_with_default_model_set(self):
+        client = AnthropicClient(
+            api_key="sk-ant-test", default_model="claude-opus-4-20250514"
+        )
+        models = client.get_models()
+        assert models == ["claude-opus-4-20250514"]
+
+
+class TestAnthropicClientCountTokens:
+    def test_count_tokens_heuristic(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        messages = [
+            {"role": "user", "content": "Hello world"},
+            {"role": "assistant", "content": "Hi there"},
+        ]
+        count = client.count_tokens(messages)
+        total_chars = len("Hello world") + len("Hi there")
+        assert count == max(1, total_chars // 4 + 2 * 5)
+
+    def test_count_tokens_empty_content(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        count = client.count_tokens([{"role": "user", "content": ""}])
+        assert count == 5
+
+    def test_count_tokens_missing_content(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        count = client.count_tokens([{"role": "user"}])
+        assert count == 5
+
+    def test_count_tokens_empty_messages(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        count = client.count_tokens([])
+        assert count == 1
+
+    def test_count_tokens_with_preserve_thinking(self):
+        client = AnthropicClient(api_key="sk-ant-test", preserve_thinking=True)
+        messages = [
+            {
+                "role": "assistant",
+                "content": "Final answer",
+                "reasoning_content": "Let me think...",
+            },
+        ]
+        count = client.count_tokens(messages)
+        total_chars = len("Final answer") + len("Let me think...")
+        assert count == max(1, total_chars // 4 + 1 * 5)
+
+    def test_count_tokens_reasoning_not_counted_when_not_preserved(self):
+        client = AnthropicClient(api_key="sk-ant-test", preserve_thinking=False)
+        messages = [
+            {
+                "role": "assistant",
+                "content": "Final answer",
+                "reasoning_content": "Let me think...",
+            },
+        ]
+        count = client.count_tokens(messages)
+        total_chars = len("Final answer")
+        assert count == max(1, total_chars // 4 + 1 * 5)
+
+
+class TestAnthropicClientToolsSupport:
+    def test_tools_support_always_true(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        assert client.tools_support() is True
+        assert client.tools_support("any-model") is True
+
+
+class TestAnthropicClientInputModes:
+    def test_input_modes_include_text_and_image(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        modes = client.input_modes()
+        assert "text" in modes
+        assert "image" in modes
+
+    def test_input_modes_with_model_arg_ignored(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        assert client.input_modes("any-model") == ["text", "image"]
+
+
+class TestAnthropicClientOutputModes:
+    def test_output_modes_text_only(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        assert client.output_modes() == ["text"]
+
+
+class TestAnthropicClientGetContextSize:
+    def test_get_context_size(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        assert client.get_context_size() == 1000000
+        assert client.get_context_size("any-model") == 1000000
+
+
+class TestAnthropicClientGetCredits:
+    def test_get_credits_returns_zero(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        assert client.get_credits() == {"total_credits": 0.0, "total_usage": 0.0}
+
+
+class TestAnthropicClientIsUp:
+    def test_is_up_success(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        with patch(
+            "tiz.inference_clients.requests.get", return_value=mock_resp
+        ) as mock_get:
+            assert client.is_up() is True
+        mock_get.assert_called_once_with(
+            AnthropicClient.BASE_URL,
+            headers=client.headers,
+            timeout=5,
+        )
+
+    def test_is_up_server_error_still_responds(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        with patch("tiz.inference_clients.requests.get", return_value=mock_resp):
+            assert client.is_up() is True
+
+    def test_is_up_5xx_failure(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        with patch("tiz.inference_clients.requests.get", return_value=mock_resp):
+            assert client.is_up() is False
+
+    def test_is_up_exception(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        with patch(
+            "tiz.inference_clients.requests.get",
+            side_effect=Exception("connection failed"),
+        ):
+            assert client.is_up() is False
+
+
+class TestAnthropicClientBuildResult:
+    def test_build_result_text_only(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        api_result = {
+            "content": [{"type": "text", "text": "Hello!"}],
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+            "model": "claude-sonnet-5",
+        }
+        result = client._build_result(api_result, {"model": "fallback"})
+        assert result == {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "Hello!",
+                        "reasoning_content": "",
+                    }
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 5,
+                "cached_tokens": 0,
+                "cache_write_tokens": 0,
+            },
+            "timings": {"prompt_time": 0, "completion_time": 0},
+            "model": "claude-sonnet-5",
+            "provider": "Anthropic/https://api.anthropic.com",
+        }
+
+    def test_build_result_with_thinking(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        api_result = {
+            "content": [
+                {"type": "thinking", "thinking": "Let me reason..."},
+                {"type": "text", "text": "Final answer"},
+            ],
+            "usage": {"input_tokens": 10, "output_tokens": 20},
+            "model": "claude-sonnet-5",
+        }
+        result = client._build_result(api_result, {})
+        assert result["choices"][0]["message"]["content"] == "Final answer"
+        assert (
+            result["choices"][0]["message"]["reasoning_content"] == "Let me reason..."
+        )
+
+    def test_build_result_with_tool_use(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        api_result = {
+            "content": [
+                {"type": "text", "text": "I will search"},
+                {
+                    "type": "tool_use",
+                    "id": "tu_123",
+                    "name": "search",
+                    "input": {"q": "hello"},
+                },
+            ],
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        result = client._build_result(api_result, {"model": "m"})
+        assert result["choices"][0]["message"]["tool_calls"] == [
+            {
+                "id": "tu_123",
+                "type": "function",
+                "function": {
+                    "name": "search",
+                    "arguments": '{"q": "hello"}',
+                },
+            }
+        ]
+
+    def test_build_result_empty_content(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        api_result = {
+            "content": [],
+            "usage": {},
+            "model": "claude-sonnet-5",
+        }
+        result = client._build_result(api_result, {"model": "fallback"})
+        assert result["choices"][0]["message"]["content"] == ""
+        assert result["usage"]["prompt_tokens"] == 0
+        assert result["usage"]["completion_tokens"] == 0
+        assert result["model"] == "claude-sonnet-5"
+
+    def test_build_result_fallback_model(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        api_result = {
+            "content": [{"type": "text", "text": "hi"}],
+            "usage": {},
+        }
+        result = client._build_result(api_result, {"model": "claude-sonnet-5"})
+        assert result["model"] == "claude-sonnet-5"
+
+
+class TestAnthropicClientChatNonStream:
+    def test_chat_non_stream_success(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        api_result = {
+            "content": [{"type": "text", "text": "Hello!"}],
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+            "model": "claude-sonnet-5",
+        }
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = api_result
+        mock_resp.status_code = 200
+        with patch(
+            "tiz.inference_clients.requests.post", return_value=mock_resp
+        ) as mock_post:
+            result = client.chat(
+                [{"role": "user", "content": "Hi"}],
+                model="claude-sonnet-5",
+                stream=False,
+            )
+        assert result["choices"][0]["message"]["content"] == "Hello!"
+        assert result["usage"]["prompt_tokens"] == 10
+        assert result["usage"]["completion_tokens"] == 5
+        mock_post.assert_called_once()
+
+    def test_chat_non_stream_with_sampling_params(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        api_result = {
+            "content": [{"type": "text", "text": "Hello!"}],
+            "usage": {},
+            "model": "claude-sonnet-5",
+        }
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = api_result
+        mock_resp.status_code = 200
+        with patch(
+            "tiz.inference_clients.requests.post", return_value=mock_resp
+        ) as mock_post:
+            result = client.chat(
+                [{"role": "user", "content": "Hi"}],
+                sampling_params={"temperature": 0.7},
+                stream=False,
+            )
+        assert result["choices"][0]["message"]["content"] == "Hello!"
+        call_kwargs = mock_post.call_args.kwargs
+        json_data = call_kwargs["json"]
+        assert json_data["temperature"] == 0.7  # type: ignore[comparison-overlap]
+        assert json_data["max_tokens"] == 4096  # type: ignore[comparison-overlap]
+
+    def test_chat_non_stream_with_tools(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        api_result = {
+            "content": [
+                {"type": "text", "text": "Searching..."},
+                {
+                    "type": "tool_use",
+                    "id": "tu_1",
+                    "name": "search",
+                    "input": {"q": "hello"},
+                },
+            ],
+            "usage": {},
+            "model": "claude-sonnet-5",
+        }
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = api_result
+        mock_resp.status_code = 200
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "search",
+                    "description": "Search",
+                    "parameters": {"type": "object"},
+                },
+            }
+        ]
+        with patch(
+            "tiz.inference_clients.requests.post", return_value=mock_resp
+        ) as mock_post:
+            result = client.chat(
+                [{"role": "user", "content": "Search"}],
+                sampling_params={"tools": tools},
+                stream=False,
+            )
+        assert result["choices"][0]["message"]["tool_calls"] == [
+            {
+                "id": "tu_1",
+                "type": "function",
+                "function": {
+                    "name": "search",
+                    "arguments": '{"q": "hello"}',
+                },
+            }
+        ]
+        call_kwargs = mock_post.call_args.kwargs
+        json_data = call_kwargs["json"]
+        assert "tools" in json_data
+        assert json_data["tools"] == [
+            {
+                "name": "search",
+                "description": "Search",
+                "input_schema": {"type": "object"},
+            }
+        ]
+
+    def test_chat_non_stream_retry_on_500(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        api_result = {
+            "content": [{"type": "text", "text": "Hello!"}],
+            "usage": {},
+        }
+        error_resp = MagicMock()
+        error_resp.status_code = 500
+        http_error = requests.exceptions.HTTPError(response=error_resp)
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = api_result
+        mock_resp.status_code = 200
+        with (
+            patch(
+                "tiz.inference_clients.requests.post",
+                side_effect=[http_error, mock_resp],
+            ) as mock_post,
+            patch("time.sleep"),
+        ):
+            result = client.chat(
+                [{"role": "user", "content": "Hi"}],
+                stream=False,
+            )
+        assert mock_post.call_count == 2
+        assert result["choices"][0]["message"]["content"] == "Hello!"
+
+    def test_chat_non_stream_retry_exhausted(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        error_resp = MagicMock()
+        error_resp.status_code = 500
+        http_error = requests.exceptions.HTTPError(response=error_resp)
+        with (
+            patch(
+                "tiz.inference_clients.requests.post",
+                side_effect=http_error,
+            ),
+            patch("time.sleep"),
+            pytest.raises(requests.exceptions.HTTPError),
+        ):
+            client._chat_non_stream({"model": "test"}, max_retries=0)
+
+    def test_chat_non_stream_no_retry_on_400(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        error_resp = MagicMock()
+        error_resp.status_code = 400
+        http_error = requests.exceptions.HTTPError(response=error_resp)
+        with (
+            patch(
+                "tiz.inference_clients.requests.post",
+                side_effect=http_error,
+            ),
+            pytest.raises(requests.exceptions.HTTPError),
+        ):
+            client._chat_non_stream({"model": "test"})
+
+    def test_chat_non_stream_uses_message_timeout(self):
+        client = AnthropicClient(api_key="sk-ant-test", message_timeout=300.0)
+        api_result = {
+            "content": [{"type": "text", "text": "Hi"}],
+            "usage": {},
+        }
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = api_result
+        mock_resp.status_code = 200
+        with patch(
+            "tiz.inference_clients.requests.post", return_value=mock_resp
+        ) as mock_post:
+            client._chat_non_stream({"model": "test"})
+        assert mock_post.call_args.kwargs["timeout"] == 300.0
+
+    def test_chat_non_stream_explicit_timeout_overrides_message_timeout(self):
+        client = AnthropicClient(api_key="sk-ant-test", message_timeout=300.0)
+        api_result = {
+            "content": [{"type": "text", "text": "Hi"}],
+            "usage": {},
+        }
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = api_result
+        mock_resp.status_code = 200
+        with patch(
+            "tiz.inference_clients.requests.post", return_value=mock_resp
+        ) as mock_post:
+            client._chat_non_stream({"model": "test"}, timeout=30.0)
+        assert mock_post.call_args.kwargs["timeout"] == 30.0
+
+
+class TestAnthropicClientChatStream:
+    def test_chat_stream_text_content(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        callback_calls: list[dict[str, Any]] = []
+
+        def callback(chunk, _subtask_name=None):
+            callback_calls.append(chunk)
+
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b"event: message_start",
+            b'data: {"type": "message_start", "message": {"id": "msg_1", "usage": {"input_tokens": 10, "output_tokens": 0}}}',
+            b"",
+            b"event: content_block_start",
+            b'data: {"type": "content_block_start", "content_block": {"type": "text", "text": "Hello"}}',
+            b"",
+            b"event: content_block_delta",
+            b'data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": " world"}}',
+            b"",
+            b"event: message_delta",
+            b'data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 5}}',
+            b"",
+            b"event: message_stop",
+            b'data: {"type": "message_stop"}',
+            b"",
+        ]
+        mock_resp.status_code = 200
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("tiz.inference_clients.requests.post", return_value=mock_resp):
+            result = client.chat(
+                [{"role": "user", "content": "Hi"}],
+                stream=True,
+                update_callback=callback,
+            )
+        assert result["choices"][0]["message"]["content"] == "Hello world"
+        assert result["usage"]["prompt_tokens"] == 10
+        assert result["usage"]["completion_tokens"] == 5
+        assert result["model"] == "claude-sonnet-5"
+        assert "Anthropic" in result["provider"]
+        assert len(callback_calls) >= 1
+
+    def test_chat_stream_with_thinking(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        callback_calls: list[dict[str, Any]] = []
+
+        def callback(chunk, _subtask_name=None):
+            callback_calls.append(chunk)
+
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b"event: message_start",
+            b'data: {"type": "message_start", "message": {"id": "msg_1", "usage": {"input_tokens": 5, "output_tokens": 0}}}',
+            b"",
+            b"event: content_block_start",
+            b'data: {"type": "content_block_start", "content_block": {"type": "thinking", "thinking": "Let me"}}',
+            b"",
+            b"event: content_block_delta",
+            b'data: {"type": "content_block_delta", "delta": {"type": "thinking_delta", "thinking": " think..."}}',
+            b"",
+            b"event: content_block_stop",
+            b'data: {"type": "content_block_stop"}',
+            b"",
+            b"event: content_block_start",
+            b'data: {"type": "content_block_start", "content_block": {"type": "text", "text": "Answer: "}}',
+            b"",
+            b"event: content_block_delta",
+            b'data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "42"}}',
+            b"",
+            b"event: message_delta",
+            b'data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 10}}',
+            b"",
+            b"event: message_stop",
+            b'data: {"type": "message_stop"}',
+            b"",
+        ]
+        mock_resp.status_code = 200
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("tiz.inference_clients.requests.post", return_value=mock_resp):
+            result = client.chat(
+                [{"role": "user", "content": "What is 6*7?"}],
+                stream=True,
+                update_callback=callback,
+            )
+        assert result["choices"][0]["message"]["content"] == "Answer: 42"
+        assert result["choices"][0]["message"]["reasoning_content"] == "Let me think..."
+        assert result["usage"]["prompt_tokens"] == 5
+        assert result["usage"]["completion_tokens"] == 10
+
+    def test_chat_stream_with_tool_use(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        callback_calls: list[dict[str, Any]] = []
+
+        def callback(chunk, _subtask_name=None):
+            callback_calls.append(chunk)
+
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b"event: message_start",
+            b'data: {"type": "message_start", "message": {"id": "msg_1", "usage": {"input_tokens": 10, "output_tokens": 0}}}',
+            b"",
+            b"event: content_block_start",
+            b'data: {"type": "content_block_start", "content_block": {"type": "text", "text": "Searching"}}',
+            b"",
+            b"event: content_block_delta",
+            b'data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "..."}}',
+            b"",
+            b"event: content_block_stop",
+            b'data: {"type": "content_block_stop"}',
+            b"",
+            b"event: content_block_start",
+            b'data: {"type": "content_block_start", "content_block": {"type": "tool_use", "id": "tu_1", "name": "search", "input": {}}}',
+            b"",
+            b"event: message_delta",
+            b'data: {"type": "message_delta", "delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 15}}',
+            b"",
+            b"event: message_stop",
+            b'data: {"type": "message_stop"}',
+            b"",
+        ]
+        mock_resp.status_code = 200
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("tiz.inference_clients.requests.post", return_value=mock_resp):
+            result = client.chat(
+                [{"role": "user", "content": "Search"}],
+                stream=True,
+                update_callback=callback,
+            )
+        assert result["choices"][0]["message"]["content"] == "Searching..."
+        assert result["choices"][0]["message"]["tool_calls"] == [
+            {
+                "id": "tu_1",
+                "type": "function",
+                "function": {"name": "search", "arguments": "{}"},
+            }
+        ]
+
+    def test_chat_stream_without_callback_creates_noop(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b"event: message_start",
+            b'data: {"type": "message_start", "message": {"usage": {"input_tokens": 1, "output_tokens": 0}}}',
+            b"",
+            b"event: content_block_start",
+            b'data: {"type": "content_block_start", "content_block": {"type": "text", "text": "Hi"}}',
+            b"",
+            b"event: message_delta",
+            b'data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}}',
+            b"",
+            b"event: message_stop",
+            b'data: {"type": "message_stop"}',
+            b"",
+        ]
+        mock_resp.status_code = 200
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("tiz.inference_clients.requests.post", return_value=mock_resp):
+            result = client.chat(
+                [{"role": "user", "content": "Hi"}],
+                stream=True,
+            )
+        assert result["choices"][0]["message"]["content"] == "Hi"
+
+    def test_chat_stream_chunked_encoding_retry_succeeds(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        callback_calls: list[dict[str, Any]] = []
+
+        def callback(chunk, _subtask_name=None):
+            callback_calls.append(chunk)
+
+        fail_resp = MagicMock()
+        fail_resp.iter_lines.side_effect = requests.exceptions.ChunkedEncodingError(
+            "connection closed"
+        )
+        fail_resp.headers = {"Content-Type": "application/json"}
+        fail_resp.status_code = 200
+        fail_resp.__enter__ = MagicMock(return_value=fail_resp)
+        fail_resp.__exit__ = MagicMock(return_value=False)
+
+        success_resp = MagicMock()
+        success_resp.iter_lines.return_value = [
+            b"event: message_start",
+            b'data: {"type": "message_start", "message": {"usage": {"input_tokens": 1, "output_tokens": 0}}}',
+            b"",
+            b"event: content_block_start",
+            b'data: {"type": "content_block_start", "content_block": {"type": "text", "text": "OK"}}',
+            b"",
+            b"event: message_delta",
+            b'data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}}',
+            b"",
+            b"event: message_stop",
+            b'data: {"type": "message_stop"}',
+            b"",
+        ]
+        success_resp.status_code = 200
+        success_resp.__enter__ = MagicMock(return_value=success_resp)
+        success_resp.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch(
+                "tiz.inference_clients.requests.post",
+                side_effect=[fail_resp, success_resp],
+            ),
+            patch("time.sleep"),
+        ):
+            result = client._chat_stream(
+                {"model": "test"},
+                callback,
+                max_retries=3,
+            )
+        assert result["choices"][0]["message"]["content"] == "OK"
+
+    def test_chat_stream_chunked_encoding_retry_exhausted(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        callback_calls: list[dict[str, Any]] = []
+
+        def callback(chunk, _subtask_name=None):
+            callback_calls.append(chunk)
+
+        fail_resp = MagicMock()
+        fail_resp.iter_lines.side_effect = requests.exceptions.ChunkedEncodingError(
+            "connection closed"
+        )
+        fail_resp.headers = {"Content-Type": "application/json"}
+        fail_resp.status_code = 200
+        fail_resp.__enter__ = MagicMock(return_value=fail_resp)
+        fail_resp.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch(
+                "tiz.inference_clients.requests.post",
+                side_effect=[fail_resp] * 5,
+            ),
+            patch("time.sleep"),
+            pytest.raises(RuntimeError, match="Stream failed after 3 retries"),
+        ):
+            client._chat_stream(
+                {"model": "test"},
+                callback,
+                max_retries=3,
+            )
+
+    def test_chat_stream_uses_message_timeout(self):
+        client = AnthropicClient(api_key="sk-ant-test", message_timeout=300.0)
+        callback_calls: list[dict[str, Any]] = []
+
+        def callback(chunk, _subtask_name=None):
+            callback_calls.append(chunk)
+
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b"event: message_start",
+            b'data: {"type": "message_start", "message": {"usage": {"input_tokens": 1, "output_tokens": 0}}}',
+            b"",
+            b"event: content_block_start",
+            b'data: {"type": "content_block_start", "content_block": {"type": "text", "text": "Hi"}}',
+            b"",
+            b"event: message_delta",
+            b'data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}}',
+            b"",
+            b"event: message_stop",
+            b'data: {"type": "message_stop"}',
+            b"",
+        ]
+        mock_resp.status_code = 200
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch(
+            "tiz.inference_clients.requests.post", return_value=mock_resp
+        ) as mock_post:
+            client._chat_stream({"model": "test"}, callback)
+        assert mock_post.call_args.kwargs["timeout"] == 300.0
+
+    def test_chat_stream_explicit_timeout_overrides_message_timeout(self):
+        client = AnthropicClient(api_key="sk-ant-test", message_timeout=300.0)
+        callback_calls: list[dict[str, Any]] = []
+
+        def callback(chunk, _subtask_name=None):
+            callback_calls.append(chunk)
+
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b"event: message_start",
+            b'data: {"type": "message_start", "message": {"usage": {"input_tokens": 1, "output_tokens": 0}}}',
+            b"",
+            b"event: content_block_start",
+            b'data: {"type": "content_block_start", "content_block": {"type": "text", "text": "Hi"}}',
+            b"",
+            b"event: message_delta",
+            b'data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}}',
+            b"",
+            b"event: message_stop",
+            b'data: {"type": "message_stop"}',
+            b"",
+        ]
+        mock_resp.status_code = 200
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch(
+            "tiz.inference_clients.requests.post", return_value=mock_resp
+        ) as mock_post:
+            client._chat_stream({"model": "test"}, callback, timeout=30.0)
+        assert mock_post.call_args.kwargs["timeout"] == 30.0
+
+
+class TestAnthropicClientParseAnthropicSSE:
+    def test_parse_sse_basic(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b"event: message_start",
+            b'data: {"type": "message_start", "message": {"id": "msg_1"}}',
+            b"",
+        ]
+        events = list(client._parse_anthropic_sse(mock_resp))
+        assert len(events) == 1
+        assert events[0]["_event"] == "message_start"
+        assert events[0]["message"]["id"] == "msg_1"
+
+    def test_parse_sse_skips_non_data_lines(self):
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b"some random line",
+            b"",
+            None,
+        ]
+        events = list(AnthropicClient._parse_anthropic_sse(mock_resp))
+        assert events == []
+
+    def test_parse_sse_empty_data(self):
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b"event: message_start",
+            b"data:   ",
+            b"",
+        ]
+        events = list(AnthropicClient._parse_anthropic_sse(mock_resp))
+        assert len(events) == 0
+
+    def test_parse_sse_malformed_json(self):
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b"event: ping",
+            b"data: not-json",
+            b"",
+        ]
+        events = list(AnthropicClient._parse_anthropic_sse(mock_resp))
+        assert events == []
+
+    def test_parse_sse_multiple_events(self):
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b"event: ping",
+            b'data: {"type": "ping"}',
+            b"",
+            b"event: message_start",
+            b'data: {"type": "message_start", "message": {}}',
+            b"",
+        ]
+        events = list(AnthropicClient._parse_anthropic_sse(mock_resp))
+        assert len(events) == 2
+        assert events[0]["_event"] == "ping"
+        assert events[1]["_event"] == "message_start"
+
+    def test_parse_sse_multiline_data_no_event(self):
+        """When no event type is set, default to empty string."""
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b'data: {"key": "value"}',
+            b"",
+        ]
+        events = list(AnthropicClient._parse_anthropic_sse(mock_resp))
+        assert len(events) == 1
+        assert events[0]["_event"] == ""
+
+
+class TestAnthropicClientSetDefaultModel:
+    def test_set_default_model(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        client.set_default_model("claude-opus-4-20250514")
+        assert client._default_model == "claude-opus-4-20250514"
+
+
+class TestAnthropicClientResolveModel:
+    def test_resolve_model_with_value(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        assert (
+            client._resolve_model("claude-opus-4-20250514") == "claude-opus-4-20250514"
+        )
+
+    def test_resolve_model_empty_fallback(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        assert client._resolve_model("") == "claude-sonnet-5"
+
+    def test_resolve_model_custom_default(self):
+        client = AnthropicClient(
+            api_key="sk-ant-test", default_model="claude-opus-4-20250514"
+        )
+        assert client._resolve_model("") == "claude-opus-4-20250514"
+
+
+class TestAnthropicClientAdditional:
+    def test_parse_sse_trailing_data_without_newline(self):
+        """Cover trailing data lines at end-of-stream."""
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b"event: message_start",
+            b'data: {"type": "message_start", "message": {}}',
+        ]
+        events = list(AnthropicClient._parse_anthropic_sse(mock_resp))
+        assert len(events) == 1
+        assert events[0]["_event"] == "message_start"
+
+    def test_parse_sse_trailing_malformed_json(self):
+        """Cover trailing data with malformed JSON."""
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b"event: ping",
+            b"data: bad-json",
+        ]
+        events = list(AnthropicClient._parse_anthropic_sse(mock_resp))
+        assert events == []
+
+    def test_chat_with_system_as_list(self):
+        """Cover system parameter as a list of content blocks."""
+        client = AnthropicClient(api_key="sk-ant-test")
+        api_result = {
+            "content": [{"type": "text", "text": "Hello!"}],
+            "usage": {},
+            "model": "claude-sonnet-5",
+        }
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = api_result
+        mock_resp.status_code = 200
+        messages = [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "system", "content": "Be concise."},
+            {"role": "user", "content": "Hi"},
+        ]
+        with patch(
+            "tiz.inference_clients.requests.post", return_value=mock_resp
+        ) as mock_post:
+            client.chat(messages, stream=False)
+        call_kwargs = mock_post.call_args.kwargs
+        json_data = call_kwargs["json"]
+        assert "system" in json_data
+        assert json_data["system"] == [
+            {"type": "text", "text": "You are helpful."},
+            {"type": "text", "text": "Be concise."},
+        ]
+
+    def test_chat_non_stream_connection_error_retry(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        api_result = {
+            "content": [{"type": "text", "text": "OK"}],
+            "usage": {},
+        }
+        conn_error = requests.exceptions.ConnectionError()
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = api_result
+        mock_resp.status_code = 200
+        with (
+            patch(
+                "tiz.inference_clients.requests.post",
+                side_effect=[conn_error, mock_resp],
+            ),
+            patch("time.sleep"),
+        ):
+            result = client.chat(
+                [{"role": "user", "content": "Hi"}],
+                stream=False,
+            )
+        assert result["choices"][0]["message"]["content"] == "OK"
+
+    def test_chat_non_stream_timeout_retry(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        api_result = {
+            "content": [{"type": "text", "text": "OK"}],
+            "usage": {},
+        }
+        timeout_error = requests.exceptions.Timeout()
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = api_result
+        mock_resp.status_code = 200
+        with (
+            patch(
+                "tiz.inference_clients.requests.post",
+                side_effect=[timeout_error, mock_resp],
+            ),
+            patch("time.sleep"),
+        ):
+            result = client.chat(
+                [{"role": "user", "content": "Hi"}],
+                stream=False,
+            )
+        assert result["choices"][0]["message"]["content"] == "OK"
+
+    def test_chat_non_stream_http_error_no_response_raises(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        http_error = requests.exceptions.HTTPError("bad request")
+        with (
+            patch(
+                "tiz.inference_clients.requests.post",
+                side_effect=http_error,
+            ),
+            pytest.raises(requests.exceptions.HTTPError),
+        ):
+            client._chat_non_stream({"model": "test"})
+
+    def test_chat_stream_with_non_text_blocks(self):
+        """Cover content_block_start for non-text/non-thinking blocks like
+        tool_use and input_json_delta events."""
+        client = AnthropicClient(api_key="sk-ant-test")
+        callback_calls: list[dict[str, Any]] = []
+
+        def callback(chunk, _subtask_name=None):
+            callback_calls.append(chunk)
+
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b"event: message_start",
+            b'data: {"type": "message_start", "message": {"usage": {"input_tokens": 5, "output_tokens": 0}}}',
+            b"",
+            b"event: content_block_start",
+            b'data: {"type": "content_block_start", "content_block": {"type": "tool_use", "id": "tu_1", "name": "search", "input": {}}}',
+            b"",
+            b"event: content_block_delta",
+            b'data: {"type": "content_block_delta", "delta": {"type": "input_json_delta", "partial_json": "{"q": "hello"}"}}',
+            b"",
+            b"event: content_block_stop",
+            b'data: {"type": "content_block_stop"}',
+            b"",
+            b"event: message_delta",
+            b'data: {"type": "message_delta", "delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 10}}',
+            b"",
+            b"event: message_stop",
+            b'data: {"type": "message_stop"}',
+            b"",
+        ]
+        mock_resp.status_code = 200
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("tiz.inference_clients.requests.post", return_value=mock_resp):
+            result = client._chat_stream({"model": "test"}, callback)
+        assert result["choices"][0]["message"]["tool_calls"] == [
+            {
+                "id": "tu_1",
+                "type": "function",
+                "function": {"name": "search", "arguments": "{}"},
+            }
+        ]
+        assert result["usage"]["prompt_tokens"] == 5
+        assert result["usage"]["completion_tokens"] == 10
+
+    def test_chat_stream_first_update_time_set(self):
+        """Cover the branch where _first_update_time is None and gets set."""
+        client = AnthropicClient(api_key="sk-ant-test")
+        callback_calls: list[dict[str, Any]] = []
+
+        def callback(chunk, _subtask_name=None):
+            callback_calls.append(chunk)
+
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b"event: message_start",
+            b'data: {"type": "message_start", "message": {"usage": {"input_tokens": 1, "output_tokens": 0}}}',
+            b"",
+            b"event: content_block_start",
+            b'data: {"type": "content_block_start", "content_block": {"type": "text", "text": "Hel"}}',
+            b"",
+            b"event: content_block_delta",
+            b'data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "lo"}}',
+            b"",
+            b"event: message_delta",
+            b'data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 2}}',
+            b"",
+            b"event: message_stop",
+            b'data: {"type": "message_stop"}',
+            b"",
+        ]
+        mock_resp.status_code = 200
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("tiz.inference_clients.requests.post", return_value=mock_resp):
+            result = client._chat_stream({"model": "test"}, callback)
+        assert result["choices"][0]["message"]["content"] == "Hello"
+        assert len(callback_calls) == 2
+
+    def test_default_model_via_resolve(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        api_result = {
+            "content": [{"type": "text", "text": "Hi"}],
+            "usage": {},
+        }
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = api_result
+        mock_resp.status_code = 200
+        with patch(
+            "tiz.inference_clients.requests.post", return_value=mock_resp
+        ) as mock_post:
+            client.chat(
+                [{"role": "user", "content": "Hi"}],
+                stream=False,
+            )
+        call_kwargs = mock_post.call_args.kwargs
+        json_data = call_kwargs["json"]
+        assert json_data["model"] == "claude-sonnet-5"
+
+    def test_provider_in_result(self):
+        client = AnthropicClient(api_key="sk-ant-test")
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "content": [{"type": "text", "text": "Hi"}],
+            "usage": {},
+        }
+        mock_resp.status_code = 200
+        with patch("tiz.inference_clients.requests.post", return_value=mock_resp):
+            result = client.chat(
+                [{"role": "user", "content": "Hi"}],
+                stream=False,
+            )
+        assert result["provider"] == "Anthropic/https://api.anthropic.com"
+
+    def test_parse_sse_trailing_empty_data(self):
+        """Cover trailing data lines where data_str is empty after strip (line 1271)."""
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b"data:   ",
+        ]
+        events = list(AnthropicClient._parse_anthropic_sse(mock_resp))
+        assert events == []
+
+    def test_chat_with_empty_tools_conversion(self):
+        """Cover tools=sampling_param where converted list is empty (line 1465)."""
+        client = AnthropicClient(api_key="sk-ant-test")
+        api_result = {"content": [{"type": "text", "text": "Hi"}], "usage": {}}
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = api_result
+        mock_resp.status_code = 200
+        tools = [{"type": "not_function", "name": "test"}]
+        with patch(
+            "tiz.inference_clients.requests.post", return_value=mock_resp
+        ) as mock_post:
+            client.chat(
+                [{"role": "user", "content": "Hi"}],
+                sampling_params={"tools": tools},
+                stream=False,
+            )
+        call_kwargs = mock_post.call_args.kwargs
+        json_data = call_kwargs["json"]
+        assert "tools" not in json_data
+
+    def test_chat_stream_no_message_stop_event(self):
+        """Cover stream loop ending without message_stop (line 1556->1628)."""
+        client = AnthropicClient(api_key="sk-ant-test")
+        callback_calls: list[dict[str, Any]] = []
+
+        def callback(chunk, _subtask_name=None):
+            callback_calls.append(chunk)
+
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b"event: message_start",
+            b'data: {"type": "message_start", "message": {"usage": {"input_tokens": 1, "output_tokens": 0}}}',
+            b"",
+            b"event: content_block_start",
+            b'data: {"type": "content_block_start", "content_block": {"type": "text", "text": "Hello"}}',
+            b"",
+            b"event: content_block_stop",
+            b'data: {"type": "content_block_stop"}',
+            b"",
+            b"event: message_delta",
+            b'data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}}',
+            b"",
+        ]
+        mock_resp.status_code = 200
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("tiz.inference_clients.requests.post", return_value=mock_resp):
+            result = client._chat_stream({"model": "test_model"}, callback)
+        assert result["choices"][0]["message"]["content"] == "Hello"
+        assert result["model"] == "test_model"
+
+    def test_chat_stream_thinking_delta_before_first_update(self):
+        """Cover thinking_delta arriving when _first_update_time is None (line 1603)."""
+        client = AnthropicClient(api_key="sk-ant-test")
+        callback_calls: list[dict[str, Any]] = []
+
+        def callback(chunk, _subtask_name=None):
+            callback_calls.append(chunk)
+
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b"event: message_start",
+            b'data: {"type": "message_start", "message": {"usage": {"input_tokens": 1, "output_tokens": 0}}}',
+            b"",
+            b"event: content_block_delta",
+            b'data: {"type": "content_block_delta", "delta": {"type": "thinking_delta", "thinking": "think..."}}',
+            b"",
+            b"event: message_delta",
+            b'data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 5}}',
+            b"",
+            b"event: message_stop",
+            b'data: {"type": "message_stop"}',
+            b"",
+        ]
+        mock_resp.status_code = 200
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("tiz.inference_clients.requests.post", return_value=mock_resp):
+            result = client._chat_stream({"model": "test"}, callback)
+        assert result["choices"][0]["message"]["reasoning_content"] == "think..."
+        assert len(callback_calls) >= 1
+
+    def test_chat_stream_text_delta_before_first_update(self):
+        """Cover text_delta arriving when _first_update_time is None (line 1615)."""
+        client = AnthropicClient(api_key="sk-ant-test")
+        callback_calls: list[dict[str, Any]] = []
+
+        def callback(chunk, _subtask_name=None):
+            callback_calls.append(chunk)
+
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b"event: message_start",
+            b'data: {"type": "message_start", "message": {"usage": {"input_tokens": 1, "output_tokens": 0}}}',
+            b"",
+            b"event: content_block_delta",
+            b'data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Hi"}}',
+            b"",
+            b"event: message_delta",
+            b'data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}}',
+            b"",
+            b"event: message_stop",
+            b'data: {"type": "message_stop"}',
+            b"",
+        ]
+        mock_resp.status_code = 200
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("tiz.inference_clients.requests.post", return_value=mock_resp):
+            result = client._chat_stream({"model": "test"}, callback)
+        assert result["choices"][0]["message"]["content"] == "Hi"
+        assert len(callback_calls) >= 1
+
+    def test_chat_stream_input_json_delta(self):
+        """Cover input_json_delta branch (line 1618-1619)."""
+        client = AnthropicClient(api_key="sk-ant-test")
+        callback_calls: list[dict[str, Any]] = []
+
+        def callback(chunk, _subtask_name=None):
+            callback_calls.append(chunk)
+
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b"event: message_start",
+            b'data: {"type": "message_start", "message": {"usage": {"input_tokens": 1, "output_tokens": 0}}}',
+            b"",
+            b"event: content_block_start",
+            b'data: {"type": "content_block_start", "content_block": {"type": "tool_use", "id": "tu_1", "name": "search", "input": {}}}',
+            b"",
+            b"event: content_block_delta",
+            b'data: {"type": "content_block_delta", "delta": {"type": "input_json_delta"}}',
+            b"",
+            b"event: content_block_stop",
+            b'data: {"type": "content_block_stop"}',
+            b"",
+            b"event: message_delta",
+            b'data: {"type": "message_delta", "delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 5}}',
+            b"",
+            b"event: message_stop",
+            b'data: {"type": "message_stop"}',
+            b"",
+        ]
+        mock_resp.status_code = 200
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("tiz.inference_clients.requests.post", return_value=mock_resp):
+            result = client._chat_stream({"model": "test"}, callback)
+        assert result["choices"][0]["message"]["tool_calls"] == [
+            {
+                "id": "tu_1",
+                "type": "function",
+                "function": {"name": "search", "arguments": "{}"},
+            }
+        ]
+
+    def test_chat_stream_unknown_event_type(self):
+        """Cover unknown event type falling through all elif branches (line 1625->1556)."""
+        client = AnthropicClient(api_key="sk-ant-test")
+        callback_calls: list[dict[str, Any]] = []
+
+        def callback(chunk, _subtask_name=None):
+            callback_calls.append(chunk)
+
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b"event: message_start",
+            b'data: {"type": "message_start", "message": {"usage": {"input_tokens": 1, "output_tokens": 0}}}',
+            b"",
+            b"event: ping",
+            b'data: {"type": "ping"}',
+            b"",
+            b"event: content_block_start",
+            b'data: {"type": "content_block_start", "content_block": {"type": "text", "text": "Hi"}}',
+            b"",
+            b"event: message_delta",
+            b'data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}}',
+            b"",
+            b"event: message_stop",
+            b'data: {"type": "message_stop"}',
+            b"",
+        ]
+        mock_resp.status_code = 200
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("tiz.inference_clients.requests.post", return_value=mock_resp):
+            result = client._chat_stream({"model": "test"}, callback)
+        assert result["choices"][0]["message"]["content"] == "Hi"
+
+    def test_chat_stream_unknown_content_block_type(self):
+        """Cover content_block_start with unknown block type (line 1580->1556)."""
+        client = AnthropicClient(api_key="sk-ant-test")
+        callback_calls: list[dict[str, Any]] = []
+
+        def callback(chunk, _subtask_name=None):
+            callback_calls.append(chunk)
+
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b"event: message_start",
+            b'data: {"type": "message_start", "message": {"usage": {"input_tokens": 1, "output_tokens": 0}}}',
+            b"",
+            b"event: content_block_start",
+            b'data: {"type": "content_block_start", "content_block": {"type": "unknown_block", "data": "test"}}',
+            b"",
+            b"event: content_block_stop",
+            b'data: {"type": "content_block_stop"}',
+            b"",
+            b"event: content_block_start",
+            b'data: {"type": "content_block_start", "content_block": {"type": "text", "text": "Hello"}}',
+            b"",
+            b"event: message_delta",
+            b'data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}}',
+            b"",
+            b"event: message_stop",
+            b'data: {"type": "message_stop"}',
+            b"",
+        ]
+        mock_resp.status_code = 200
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("tiz.inference_clients.requests.post", return_value=mock_resp):
+            result = client._chat_stream({"model": "test"}, callback)
+        assert result["choices"][0]["message"]["content"] == "Hello"
+
+    def test_build_result_unknown_block_type(self):
+        """Cover _build_result with unknown block type (line 1715->1709)."""
+        client = AnthropicClient(api_key="sk-ant-test")
+        api_result = {
+            "content": [
+                {"type": "unknown", "data": "test"},
+                {"type": "text", "text": "Hello"},
+            ],
+            "usage": {"input_tokens": 5, "output_tokens": 3},
+            "model": "claude-sonnet-5",
+        }
+        result = client._build_result(api_result, {"model": "fallback"})
+        assert result["choices"][0]["message"]["content"] == "Hello"
+        assert result["usage"]["prompt_tokens"] == 5
+        assert result["usage"]["completion_tokens"] == 3
+
+    def test_chat_stream_unknown_delta_type(self):
+        """Cover content_block_delta with unknown delta type (line 1618->1556)."""
+        client = AnthropicClient(api_key="sk-ant-test")
+        callback_calls: list[dict[str, Any]] = []
+
+        def callback(chunk, _subtask_name=None):
+            callback_calls.append(chunk)
+
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b"event: message_start",
+            b'data: {"type": "message_start", "message": {"usage": {"input_tokens": 1, "output_tokens": 0}}}',
+            b"",
+            b"event: content_block_start",
+            b'data: {"type": "content_block_start", "content_block": {"type": "text", "text": "Hi"}}',
+            b"",
+            b"event: content_block_delta",
+            b'data: {"type": "content_block_delta", "delta": {"type": "unknown_delta_type"}}',
+            b"",
+            b"event: content_block_stop",
+            b'data: {"type": "content_block_stop"}',
+            b"",
+            b"event: message_delta",
+            b'data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}}',
+            b"",
+            b"event: message_stop",
+            b'data: {"type": "message_stop"}',
+            b"",
+        ]
+        mock_resp.status_code = 200
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("tiz.inference_clients.requests.post", return_value=mock_resp):
+            result = client._chat_stream({"model": "test"}, callback)
+        assert result["choices"][0]["message"]["content"] == "Hi"
+        assert len(callback_calls) >= 1
+
+    def test_chat_stream_thinking_block_start_already_set(self):
+        """Cover thinking block_start when _first_update_time already set (line 1574->1576)."""
+        client = AnthropicClient(api_key="sk-ant-test")
+        callback_calls: list[dict[str, Any]] = []
+
+        def callback(chunk, _subtask_name=None):
+            callback_calls.append(chunk)
+
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b"event: message_start",
+            b'data: {"type": "message_start", "message": {"usage": {"input_tokens": 1, "output_tokens": 0}}}',
+            b"",
+            b"event: content_block_start",
+            b'data: {"type": "content_block_start", "content_block": {"type": "thinking", "thinking": "Let me "}}',
+            b"",
+            b"event: content_block_delta",
+            b'data: {"type": "content_block_delta", "delta": {"type": "thinking_delta", "thinking": "think"}}',
+            b"",
+            b"event: content_block_stop",
+            b'data: {"type": "content_block_stop"}',
+            b"",
+            b"event: content_block_start",
+            b'data: {"type": "content_block_start", "content_block": {"type": "thinking", "thinking": "more "}}',
+            b"",
+            b"event: content_block_delta",
+            b'data: {"type": "content_block_delta", "delta": {"type": "thinking_delta", "thinking": "thoughts"}}',
+            b"",
+            b"event: content_block_stop",
+            b'data: {"type": "content_block_stop"}',
+            b"",
+            b"event: message_delta",
+            b'data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 5}}',
+            b"",
+            b"event: message_stop",
+            b'data: {"type": "message_stop"}',
+            b"",
+        ]
+        mock_resp.status_code = 200
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("tiz.inference_clients.requests.post", return_value=mock_resp):
+            result = client._chat_stream({"model": "test"}, callback)
+        assert (
+            result["choices"][0]["message"]["reasoning_content"]
+            == "Let me thinkmore thoughts"
+        )
+
+    def test_chat_stream_http_error_with_response_retry(self):
+        """Cover Anthropic _chat_stream HTTPError with a response object (line 1690)."""
+        client = AnthropicClient(api_key="sk-ant-test")
+        callback_calls: list[dict[str, Any]] = []
+
+        def callback(chunk, _subtask_name=None):
+            callback_calls.append(chunk)
+
+        error_resp = MagicMock()
+        error_resp.status_code = 503
+        http_error = requests.exceptions.HTTPError(response=error_resp)
+
+        success_resp = MagicMock()
+        success_resp.iter_lines.return_value = [
+            b"event: message_start",
+            b'data: {"type": "message_start", "message": {"usage": {"input_tokens": 1, "output_tokens": 0}}}',
+            b"",
+            b"event: content_block_start",
+            b'data: {"type": "content_block_start", "content_block": {"type": "text", "text": "OK"}}',
+            b"",
+            b"event: message_delta",
+            b'data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}}',
+            b"",
+            b"event: message_stop",
+            b'data: {"type": "message_stop"}',
+            b"",
+        ]
+        success_resp.status_code = 200
+        success_resp.__enter__ = MagicMock(return_value=success_resp)
+        success_resp.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch(
+                "tiz.inference_clients.requests.post",
+                side_effect=[http_error, success_resp],
+            ),
+            patch("time.sleep"),
+        ):
+            result = client._chat_stream({"model": "test"}, callback, max_retries=3)
+        assert result["choices"][0]["message"]["content"] == "OK"
+
+    def test_chat_stream_non_retryable_http_error_raises(self):
+        """Cover Anthropic _chat_stream non-retryable HTTPError raising (line 1707)."""
+        client = AnthropicClient(api_key="sk-ant-test")
+        callback_calls: list[dict[str, Any]] = []
+
+        def callback(chunk, _subtask_name=None):
+            callback_calls.append(chunk)
+
+        error_resp = MagicMock()
+        error_resp.status_code = 400
+        http_error = requests.exceptions.HTTPError(response=error_resp)
+
+        with (
+            patch(
+                "tiz.inference_clients.requests.post",
+                side_effect=http_error,
+            ),
+            pytest.raises(requests.exceptions.HTTPError),
+        ):
+            client._chat_stream({"model": "test"}, callback, max_retries=3)

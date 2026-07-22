@@ -103,6 +103,22 @@ def _make_openrouter_engine(**kwargs: Any) -> InferenceEngineSpec:
     )
 
 
+def _make_anthropic_engine(**kwargs: Any) -> InferenceEngineSpec:
+    return InferenceEngineSpec(
+        engine_type=kwargs.get("engine_type", "anthropic"),
+        host=kwargs.get("host", ""),
+        model=kwargs.get("model", "claude-sonnet-5"),
+        api_key=kwargs.get("api_key", "sk-ant-test"),
+        name=kwargs.get("name", "test-anthropic-engine"),
+        timeout=kwargs.get("timeout", 60),
+        verify_ssl=kwargs.get("verify_ssl", True),
+        ca_cert=kwargs.get("ca_cert"),
+        sampling_params=kwargs.get("sampling_params"),
+        message_timeout=kwargs.get("message_timeout"),
+        preserve_thinking=kwargs.get("preserve_thinking", False),
+    )
+
+
 def _make_task(
     name: str = "test_task",
     tools: list[ToolSpec] | None = None,
@@ -461,6 +477,76 @@ def test_build_client_unknown_engine() -> None:
     engine = _make_llamacpp_engine(engine_type="unknown")
     with pytest.raises(ValueError, match="Unknown inference engine type"):
         ManifestExecutor.build_client(engine)
+
+
+def test_build_client_anthropic() -> None:
+    with patch("tiz.base_task_executor.AnthropicClient") as mock_cls:
+        engine = _make_anthropic_engine()
+        ManifestExecutor.build_client(engine)
+    mock_cls.assert_called_once_with(
+        api_key="sk-ant-test",
+        default_model="claude-sonnet-5",
+        sampling_params=None,
+        preserve_thinking=False,
+        timeout=60,
+        message_timeout=None,
+    )
+
+
+def test_build_client_anthropic_claude_variant() -> None:
+    with patch("tiz.base_task_executor.AnthropicClient") as mock_cls:
+        engine = _make_anthropic_engine(engine_type="claude")
+        ManifestExecutor.build_client(engine)
+    mock_cls.assert_called_once()
+
+
+def test_build_client_anthropic_custom_model() -> None:
+    with patch("tiz.base_task_executor.AnthropicClient") as mock_cls:
+        engine = _make_anthropic_engine(model="claude-opus-4")
+        ManifestExecutor.build_client(engine)
+    call_kwargs = mock_cls.call_args.kwargs
+    assert call_kwargs["default_model"] == "claude-opus-4"
+
+
+def test_build_client_anthropic_no_model_fallback() -> None:
+    with patch("tiz.base_task_executor.AnthropicClient") as mock_cls:
+        engine = _make_anthropic_engine(model=None)
+        ManifestExecutor.build_client(engine)
+    call_kwargs = mock_cls.call_args.kwargs
+    assert call_kwargs["default_model"] == "claude-sonnet-5"
+
+
+def test_build_client_anthropic_sampling_params() -> None:
+    with patch("tiz.base_task_executor.AnthropicClient") as mock_cls:
+        engine = _make_anthropic_engine(sampling_params={"temperature": 0.3})
+        ManifestExecutor.build_client(engine)
+    call_kwargs = mock_cls.call_args.kwargs
+    assert call_kwargs["sampling_params"] == {"temperature": 0.3}
+
+
+def test_build_client_anthropic_preserve_thinking() -> None:
+    with patch("tiz.base_task_executor.AnthropicClient") as mock_cls:
+        engine = _make_anthropic_engine(preserve_thinking=True)
+        ManifestExecutor.build_client(engine)
+    call_kwargs = mock_cls.call_args.kwargs
+    assert call_kwargs["preserve_thinking"] is True
+
+
+def test_build_client_anthropic_custom_timeout() -> None:
+    with patch("tiz.base_task_executor.AnthropicClient") as mock_cls:
+        engine = _make_anthropic_engine(timeout=120, message_timeout=300)
+        ManifestExecutor.build_client(engine)
+    call_kwargs = mock_cls.call_args.kwargs
+    assert call_kwargs["timeout"] == 120
+    assert call_kwargs["message_timeout"] == 300
+
+
+def test_build_client_anthropic_no_api_key() -> None:
+    with patch("tiz.base_task_executor.AnthropicClient") as mock_cls:
+        engine = _make_anthropic_engine(api_key=None)
+        ManifestExecutor.build_client(engine)
+    call_kwargs = mock_cls.call_args.kwargs
+    assert call_kwargs["api_key"] == ""
 
 
 # ---------------------------------------------------------------------------

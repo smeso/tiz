@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from typing import Any
@@ -2504,6 +2505,42 @@ def test_resolve_key_file_prefix_in_engine(tmp_path: Path) -> None:
     )
     parser = ManifestParser(data=data, path=None)
     assert parser.inference_engines[0].api_key == "file-based-key"
+
+
+def test_resolve_key_claude_prefix(tmp_path: Path) -> None:
+    creds = {"claudeAiOauth": {"accessToken": "claude-token-456"}}
+    file_path = tmp_path / "claude_creds.json"
+    file_path.write_text(json.dumps(creds), encoding="utf-8")
+    result = ManifestParser._resolve_key(f"claude:{file_path}", "engine")
+    assert result == f"claude:{file_path}"
+
+
+def test_resolve_key_anthropic_prefix(tmp_path: Path) -> None:
+    creds = {"claudeAiOauth": {"accessToken": "anthropic-token"}}
+    file_path = tmp_path / "claude_creds.json"
+    file_path.write_text(json.dumps(creds), encoding="utf-8")
+    result = ManifestParser._resolve_key(f"anthropic:{file_path}", "engine")
+    assert result == f"anthropic:{file_path}"
+
+
+def test_resolve_key_claude_prefix_in_engine(tmp_path: Path) -> None:
+    creds = {"claudeAiOauth": {"accessToken": "claude-engine-token"}}
+    file_path = tmp_path / "claude_creds.json"
+    file_path.write_text(json.dumps(creds), encoding="utf-8")
+    data = _make_data(
+        meta=_MINIMAL_META,
+        inference_engines=[
+            {
+                "type": "llamacpp",
+                "name": "claude-key-engine",
+                "model": "gpt-4",
+                "api_key": f"claude:{file_path}",
+            }
+        ],
+    )
+    parser = ManifestParser(data=data, path=None)
+    # The manifest parser returns the raw key string for claude: prefix
+    assert parser.inference_engines[0].api_key == f"claude:{file_path}"
 
 
 # ---------------------------------------------------------------------------

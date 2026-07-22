@@ -7,6 +7,7 @@ implementations for:
 * ``LlamaCpp`` - a self-hosted llama.cpp server
 * ``DwarfStar4`` - a lightweight inference backend
 * ``OpenRouter`` - the OpenRouter.ai API gateway
+* ``AnthropicClient`` - the Anthropic API (Claude models)
 """
 
 from __future__ import annotations
@@ -1171,4 +1172,596 @@ class OpenRouter(OpenAICompatibleClient):
         result["usage"]["cost"] = cost
         result["usage"]["cost_details"] = cost_details
         result["provider"] = "OpenRouter/" + str(msg.get("provider") or "Unknown")
+        return result
+
+
+# ---------------------------------------------------------------------------
+# Anthropic client
+# ---------------------------------------------------------------------------
+
+
+class AnthropicClient(InferenceClient):
+    """Client for the Anthropic API (Claude models).
+
+    Communicates with the Anthropic Messages API endpoint directly.
+    Supports both streaming and non-streaming chat completions,
+    thinking/reasoning content, and tool use.
+
+    * Token counting uses a heuristic (no standalone endpoint).
+    """
+
+    BASE_URL = "https://api.anthropic.com"
+
+    def __init__(
+        self,
+        api_key: str,
+        default_model: str = "claude-sonnet-5",
+        sampling_params: SamplingParams | None = None,
+        preserve_thinking: bool = False,
+        timeout: float = 60.0,
+        message_timeout: float | None = None,
+    ) -> None:
+        """Initialise the Anthropic client.
+
+        Args:
+            api_key: The Anthropic API key.
+            default_model: Default model identifier.
+            sampling_params: Optional default sampling parameters.
+            preserve_thinking: Whether to preserve thinking/reasoning content.
+            timeout: Default request timeout in seconds.
+            message_timeout: Optional per-message timeout override.
+        """
+        super().__init__(default_model, sampling_params, preserve_thinking)
+        self.api_key = api_key
+        self.timeout = timeout
+        self.message_timeout = message_timeout
+        self.url = f"{self.BASE_URL}/v1/messages"
+        self.headers: dict[str, str] = {
+            "Content-Type": "application/json",
+            "User-Agent": USER_AGENT,
+            "x-api-key": self.api_key,
+            "anthropic-version": "2023-06-01",
+        }
+        self._first_update_time: float | None = None
+        self._last_update_time: float | None = None
+        self._request_start_time: float = 0.0
+
+    # ------------------------------------------------------------------
+    # Helper methods
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _parse_anthropic_sse(
+        resp: requests.Response,
+    ) -> Generator[dict[str, Any], None, None]:
+        """Parse Anthropic SSE stream, yielding event data dicts.
+
+        Each yielded dict includes the event type under the ``_event`` key.
+        """
+        current_event = ""
+        current_data_lines: list[str] = []
+        for raw_line in resp.iter_lines():
+            if raw_line is None:
+                continue
+            decoded: str = (
+                raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
+            )
+            if decoded.startswith("event: "):
+                current_event = decoded[7:]
+            elif decoded.startswith("data: "):
+                current_data_lines.append(decoded[6:])
+            elif decoded == "":
+                if current_data_lines:
+                    data_str = "".join(current_data_lines).strip()
+                    if data_str:
+                        try:
+                            data = json.loads(data_str)
+                            data["_event"] = current_event
+                            yield data
+                        except json.JSONDecodeError:
+                            pass
+                current_event = ""
+                current_data_lines = []
+        if current_data_lines:
+            data_str = "".join(current_data_lines).strip()
+            if data_str:
+                try:
+                    data = json.loads(data_str)
+                    data["_event"] = current_event
+                    yield data
+                except json.JSONDecodeError:
+                    pass
+
+    @staticmethod
+    def _convert_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Convert OpenAI-format tool definitions to Anthropic format."""
+        result: list[dict[str, Any]] = []
+        for tool in tools:
+            if tool.get("type") == "function":
+                func = tool.get("function", {})
+                result.append(
+                    {
+                        "name": func.get("name", ""),
+                        "description": func.get("description", ""),
+                        "input_schema": func.get("parameters", {}),
+                    }
+                )
+        return result
+
+    def _convert_messages(
+        self, messages: list[dict[str, Any]]
+    ) -> tuple[str | list[dict[str, Any]] | None, list[dict[str, Any]]]:
+        """Convert OpenAI-format messages to Anthropic format.
+
+        Returns ``(system, anthropic_messages)``.
+        """
+        system_parts: list[dict[str, Any]] = []
+        anthropic_msgs: list[dict[str, Any]] = []
+
+        for msg in messages:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            tool_calls = msg.get("tool_calls")
+            tool_call_id = msg.get("tool_call_id")
+
+            if role == "system":
+                if content:
+                    system_parts.append({"type": "text", "text": content})
+                continue
+
+            if role == "tool":
+                blocks: list[dict[str, Any]] = [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tool_call_id or "",
+                        "content": content or "",
+                    }
+                ]
+                anthropic_msgs.append({"role": "user", "content": blocks})
+                continue
+
+            if role == "assistant" and tool_calls:
+                blocks = []
+                if content:
+                    blocks.append({"type": "text", "text": content})
+                for tc in tool_calls:
+                    func = tc.get("function", {})
+                    args_str = func.get("arguments", "{}")
+                    try:
+                        args = json.loads(args_str)
+                    except json.JSONDecodeError:
+                        args = {}
+                    blocks.append(
+                        {
+                            "type": "tool_use",
+                            "id": tc.get("id", ""),
+                            "name": func.get("name", ""),
+                            "input": args,
+                        }
+                    )
+                anthropic_msgs.append({"role": "assistant", "content": blocks})
+                continue
+
+            anthropic_msgs.append({"role": role, "content": content or ""})
+
+        system: str | list[dict[str, Any]] | None = None
+        if len(system_parts) == 1:
+            system = system_parts[0]["text"]
+        elif len(system_parts) > 1:
+            system = system_parts
+
+        return system, anthropic_msgs
+
+    @staticmethod
+    def _backoff_delay(retries: int) -> float:
+        """Compute exponential backoff with jitter."""
+        return float(min(2**retries, 60)) + random.uniform(0, 1)
+
+    # ------------------------------------------------------------------
+    # Abstract method implementations
+    # ------------------------------------------------------------------
+
+    def get_models(self) -> list[str]:
+        """Return the configured model (Anthropic does not expose a public list)."""
+        return [self._resolve_model("")]
+
+    def count_tokens(self, messages: list[dict[str, str]], _model: str = "") -> int:
+        """Estimate token count using a heuristic.
+
+        Anthropic's tokenizer averages ~4 characters per token, with ~5
+        tokens of overhead per message for role markers and formatting.
+        """
+        total_chars = 0
+        for msg in messages:
+            total_chars += len(msg.get("content", "") or "")
+            if self._preserve_thinking:
+                total_chars += len(msg.get("reasoning_content", "") or "")
+        num_messages = len(messages)
+        return max(1, total_chars // 4 + num_messages * 5)
+
+    def tools_support(self, _model: str = "") -> bool:
+        """Return True - all Claude models support tool use."""
+        return True
+
+    def input_modes(self, _model: str = "") -> list[str]:
+        """Return the supported input modalities for Claude models."""
+        return ["text", "image"]
+
+    def output_modes(self, _model: str = "") -> list[str]:
+        """Return the supported output modalities for Claude models."""
+        return ["text"]
+
+    def get_context_size(self, _model: str = "") -> int:
+        """Return the context window size for Claude models (1M)."""
+        return 1000000
+
+    def get_credits(self) -> dict[str, float]:
+        """Return credit balance (always zero - not exposed via API)."""
+        return {"total_credits": 0.0, "total_usage": 0.0}
+
+    def is_up(self) -> bool:
+        """Check if the Anthropic API is reachable."""
+        try:
+            resp = requests.get(
+                self.BASE_URL,
+                headers=self.headers,
+                timeout=5,
+            )
+            return resp.status_code < 500
+        except Exception as e:
+            logger.debug("Anthropic health check failed: %s", e)
+            return False
+
+    # ------------------------------------------------------------------
+    # Chat implementation
+    # ------------------------------------------------------------------
+
+    def chat(
+        self,
+        messages: list[dict[str, Any]],
+        sampling_params: SamplingParams | None = None,
+        stream: bool = False,
+        update_callback: Callable[[dict[str, Any], str | None], None] | None = None,
+        model: str = "",
+        max_retries: int = 3,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Send a chat completion request to the Anthropic API.
+
+        Args:
+            messages: The conversation history (list of role/content dicts).
+            sampling_params: Optional dictionary of sampling parameters.
+            stream: Whether to stream the response.
+            update_callback: Optional callback invoked for each streaming chunk.
+            model: The model identifier to use.
+            max_retries: Maximum number of retries on 500 errors.
+            timeout: Optional request timeout in seconds.
+
+        Returns:
+            A dict containing the chat completion response.
+        """
+        resolved_model = self._resolve_model(model)
+        system, anthropic_msgs = self._convert_messages(messages)
+
+        merged_params = self._sampling_params.copy()
+        if sampling_params is not None:
+            merged_params.update(sampling_params)
+
+        data: dict[str, Any] = {
+            "model": resolved_model,
+            "max_tokens": merged_params.pop("max_tokens", 4096),
+            "messages": anthropic_msgs,
+        }
+        if system is not None:
+            data["system"] = system
+
+        tools_raw = merged_params.pop("tools", None)
+        if tools_raw:
+            converted = self._convert_tools(tools_raw)
+            if converted:
+                data["tools"] = converted
+
+        data.update(merged_params)
+
+        if stream:
+            data["stream"] = True
+            if update_callback is None:
+
+                def _noop_callback(
+                    _chunk: dict[str, Any], _subtask_name: str | None = None
+                ) -> None:
+                    pass
+
+                update_callback = _noop_callback
+            return self._chat_stream(data, update_callback, max_retries, timeout)
+
+        return self._chat_non_stream(data, max_retries, timeout)
+
+    def _chat_non_stream(
+        self,
+        data: dict[str, Any],
+        max_retries: int = 3,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Send a non-streaming chat request."""
+        retries = 0
+        while True:
+            try:
+                resp = requests.post(
+                    self.url,
+                    headers=self.headers,
+                    json=data,
+                    timeout=timeout or self.message_timeout or self.timeout,
+                )
+                resp.raise_for_status()
+                result = resp.json()
+                return self._build_result(result, data)
+            except (
+                requests.exceptions.HTTPError,
+                requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
+            ) as e:
+                status_code = None
+                if (
+                    isinstance(e, requests.exceptions.HTTPError)
+                    and e.response is not None
+                ):
+                    status_code = e.response.status_code
+                if status_code in {500, 502, 503, 504, 429} or isinstance(
+                    e,
+                    (requests.exceptions.ConnectionError, requests.exceptions.Timeout),
+                ):
+                    retries += 1
+                    if retries > max_retries:
+                        raise
+                    backoff = self._backoff_delay(retries)
+                    time.sleep(backoff)
+                else:
+                    raise
+
+    def _chat_stream(
+        self,
+        data: dict[str, Any],
+        update_callback: Callable[[dict[str, Any], str | None], None],
+        max_retries: int = 3,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Send a streaming chat request and process SSE events."""
+        self._first_update_time = None
+        self._last_update_time = None
+        self._request_start_time = time.monotonic()
+
+        retries = 0
+        content_blocks: list[dict[str, Any]] = []
+        text_content = ""
+        thinking_content = ""
+        input_tokens = 0
+        output_tokens = 0
+
+        while True:
+            try:
+                resp = requests.post(
+                    self.url,
+                    headers=self.headers,
+                    json=data,
+                    stream=True,
+                    timeout=timeout or self.message_timeout or self.timeout,
+                )
+                resp.raise_for_status()
+
+                for event in self._parse_anthropic_sse(resp):
+                    event_type = event.get("_event", "")
+                    if event_type == "message_start":
+                        msg = event.get("message", {})
+                        usage = msg.get("usage", {})
+                        input_tokens = usage.get("input_tokens", 0)
+                        output_tokens = usage.get("output_tokens", 0)
+                    elif event_type == "content_block_start":
+                        block = event.get("content_block", {})
+                        content_blocks.append(block)
+                        block_type = block.get("type", "")
+                        if block_type == "thinking":
+                            thinking_content += block.get("thinking", "")
+                            delta_info: dict[str, Any] = {
+                                "delta": {"reasoning": block.get("thinking", "")},
+                                "delta_type": "reasoning",
+                            }
+                            now = time.monotonic()
+                            if self._first_update_time is None:
+                                self._first_update_time = now
+                            self._last_update_time = now
+                            update_callback(delta_info, None)
+                        elif block_type == "tool_use":
+                            pass
+                        elif block_type == "text":
+                            text_content += block.get("text", "")
+                            delta_info = {
+                                "delta": {"content": block.get("text", "")},
+                                "delta_type": "content",
+                            }
+                            now = time.monotonic()
+                            if self._first_update_time is None:
+                                self._first_update_time = now
+                            self._last_update_time = now
+                            update_callback(delta_info, None)
+                    elif event_type == "content_block_delta":
+                        delta = event.get("delta", {})
+                        delta_type = delta.get("type", "")
+                        if delta_type == "thinking_delta":
+                            thinking_text = delta.get("thinking", "")
+                            thinking_content += thinking_text
+                            delta_info = {
+                                "delta": {"reasoning": thinking_text},
+                                "delta_type": "reasoning",
+                            }
+                            now = time.monotonic()
+                            if self._first_update_time is None:
+                                self._first_update_time = now
+                            self._last_update_time = now
+                            update_callback(delta_info, None)
+                        elif delta_type == "text_delta":
+                            text = delta.get("text", "")
+                            text_content += text
+                            delta_info = {
+                                "delta": {"content": text},
+                                "delta_type": "content",
+                            }
+                            now = time.monotonic()
+                            if self._first_update_time is None:
+                                self._first_update_time = now
+                            self._last_update_time = now
+                            update_callback(delta_info, None)
+                        elif delta_type == "input_json_delta":
+                            pass
+                    elif event_type == "content_block_stop":
+                        pass
+                    elif event_type == "message_delta":
+                        usage = event.get("usage", {})
+                        output_tokens = usage.get("output_tokens", output_tokens)
+                    elif event_type == "message_stop":
+                        break
+
+                break
+            except (
+                requests.exceptions.HTTPError,
+                requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
+                requests.exceptions.ChunkedEncodingError,
+            ) as e:
+                status_code = None
+                if (
+                    isinstance(e, requests.exceptions.HTTPError)
+                    and e.response is not None
+                ):
+                    status_code = e.response.status_code
+                if status_code in {500, 502, 503, 504, 429} or isinstance(
+                    e,
+                    (
+                        requests.exceptions.ConnectionError,
+                        requests.exceptions.Timeout,
+                        requests.exceptions.ChunkedEncodingError,
+                    ),
+                ):
+                    retries += 1
+                    if retries > max_retries:
+                        raise RuntimeError(
+                            f"Stream failed after {max_retries} retries"
+                        ) from e
+                    backoff = self._backoff_delay(retries)
+                    time.sleep(backoff)
+                    continue
+                raise
+
+        # Extract tool calls from content blocks
+        tool_calls_list: list[dict[str, Any]] = []
+        for block in content_blocks:
+            if block.get("type") == "tool_use":
+                tool_calls_list.append(
+                    {
+                        "id": block.get("id", ""),
+                        "type": "function",
+                        "function": {
+                            "name": block.get("name", ""),
+                            "arguments": json.dumps(block.get("input", {})),
+                        },
+                    }
+                )
+
+        prompt_time = (self._first_update_time or time.monotonic()) - (
+            self._request_start_time or time.monotonic()
+        )
+        completion_time = (self._last_update_time or time.monotonic()) - (
+            self._first_update_time or time.monotonic()
+        )
+
+        result: dict[str, Any] = {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": text_content,
+                        "reasoning_content": thinking_content,
+                    }
+                }
+            ],
+            "usage": {
+                "prompt_tokens": input_tokens,
+                "completion_tokens": output_tokens,
+                "cached_tokens": 0,
+                "cache_write_tokens": 0,
+            },
+            "timings": {
+                "prompt_time": prompt_time,
+                "completion_time": completion_time,
+            },
+            "model": data.get("model", ""),
+            "provider": "Anthropic/" + self.BASE_URL,
+        }
+
+        if tool_calls_list:
+            result["choices"][0]["message"]["tool_calls"] = tool_calls_list
+
+        return result
+
+    def _build_result(
+        self, api_result: dict[str, Any], request_data: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Convert an Anthropic API response to the standard response format.
+
+        Args:
+            api_result: The raw response from the Anthropic API.
+            request_data: The request data dict (for model name fallback).
+
+        Returns:
+            A dict with ``choices``, ``usage``, ``timings``, ``model``,
+            ``provider`` keys.
+        """
+        content_blocks: list[dict[str, Any]] = api_result.get("content", [])
+        text_content = ""
+        thinking_content = ""
+        tool_calls_list = []
+
+        for block in content_blocks:
+            block_type = block.get("type", "")
+            if block_type == "text":
+                text_content += block.get("text", "")
+            elif block_type == "thinking":
+                thinking_content += block.get("thinking", "")
+            elif block_type == "tool_use":
+                tool_calls_list.append(
+                    {
+                        "id": block.get("id", ""),
+                        "type": "function",
+                        "function": {
+                            "name": block.get("name", ""),
+                            "arguments": json.dumps(block.get("input", {})),
+                        },
+                    }
+                )
+
+        usage = api_result.get("usage", {})
+        result: dict[str, Any] = {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": text_content,
+                        "reasoning_content": thinking_content,
+                    }
+                }
+            ],
+            "usage": {
+                "prompt_tokens": usage.get("input_tokens", 0),
+                "completion_tokens": usage.get("output_tokens", 0),
+                "cached_tokens": 0,
+                "cache_write_tokens": 0,
+            },
+            "timings": {"prompt_time": 0, "completion_time": 0},
+            "model": api_result.get("model", request_data.get("model", "")),
+            "provider": "Anthropic/" + self.BASE_URL,
+        }
+
+        if tool_calls_list:
+            result["choices"][0]["message"]["tool_calls"] = tool_calls_list
+
         return result
