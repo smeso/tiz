@@ -102,4 +102,8 @@ debian/*.debhelper
 debian/debhelper-build-stamp
 debian/tiz/
 debian/.debhelper/
+
+# Generated APT repository (built by scripts/mkrepo.sh)
+repo/
+
 node_modules
