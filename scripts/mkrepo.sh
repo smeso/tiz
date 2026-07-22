@@ -21,11 +21,10 @@ fi
 repo_dir="$projdir/repo"
 dist="stable"
 component="main"
-arch="all"
 
 echo ""
 echo "=== Creating APT repository structure ==="
-repodir="$repo_dir/dists/$dist/$component/binary-$arch"
+repodir="$repo_dir/dists/$dist/$component/binary-all"
 mkdir -p "$repodir"
 cp "$deb_file" "$repodir/"
 
@@ -41,9 +40,9 @@ Label: tiz APT Repository
 Suite: $dist
 Codename: $dist
 Date: $(date -Ru)
-Architectures: $arch
+Architectures: all amd64 arm64 armel armhf i386 ppc64el riscv64 s390x
 Components: $component
-Description: tiz - agentic chatbot and harness using sandboxed tools
+Description: agentic chatbot and harness using sandboxed tools
 EOF
 
 # Compute hashes
@@ -58,10 +57,10 @@ while IFS= read -r -d '' f; do
     sha256=$(sha256sum "$f" | cut -d' ' -f1)
     sha512=$(sha512sum "$f" | cut -d' ' -f1)
     size=$(stat -c%s "$f")
-    hash_lines+="MD5Sum: $md5 $size $rel"$'\n'
-    hash_lines+="SHA1: $sha1 $size $rel"$'\n'
-    hash_lines+="SHA256: $sha256 $size $rel"$'\n'
-    hash_lines+="SHA512: $sha512 $size $rel"$'\n'
+    hash_lines+="MD5Sum:  $md5 $size $rel"$'\n'
+    hash_lines+="SHA1:  $sha1 $size $rel"$'\n'
+    hash_lines+="SHA256:  $sha256 $size $rel"$'\n'
+    hash_lines+="SHA512:  $sha512 $size $rel"$'\n'
 done < <(find "$component" -type f -print0 | sort -z)
 
 # Append hashes to Release
