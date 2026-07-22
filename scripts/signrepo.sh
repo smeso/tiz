@@ -2,7 +2,7 @@
 # Sign the Release file of an APT repository previously created by mkrepo.sh.
 set -euo pipefail
 
-gpg_key_id="s.mesoraca16@gmail.com"
+gpg_key_id="85F0580B9DACBE6E"
 
 projdir="$(dirname "$(realpath "${BASH_SOURCE[0]}")")/../"
 repo_dir="$projdir/repo"
