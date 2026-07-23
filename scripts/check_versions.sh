@@ -22,6 +22,10 @@ echo "src/tiz/__init__.py:  $init_ver"
 sw_ver=$(grep -oP '_TIZ_VERSION\s*=\s*"\K[^"]+' "${projdir}"/src/tiz/sandbox_worker.py)
 echo "src/tiz/sandbox_worker.py: $sw_ver"
 
+# Extract fallback version from test_version_fallback_on_empty_string and test_version_fallback_on_package_not_found
+test_fallback_ver=$(grep -oP "assert tiz.__version__ == \"\K[^\"]+" "${projdir}"/tests/test_tiz_init.py | head -1)
+echo "tests/test_tiz_init.py (fallback): $test_fallback_ver"
+
 # Compare
 if [[ "$pyproj_ver" != "$changelog_ver" ]]; then
     echo "ERROR: debian/changelog version ($changelog_ver) != pyproject.toml ($pyproj_ver)" >&2
@@ -35,6 +39,11 @@ fi
 
 if [[ "$pyproj_ver" != "$sw_ver" ]]; then
     echo "ERROR: src/tiz/sandbox_worker.py version ($sw_ver) != pyproject.toml ($pyproj_ver)" >&2
+    ((errors++))
+fi
+
+if [[ "$pyproj_ver" != "$test_fallback_ver" ]]; then
+    echo "ERROR: tests/test_tiz_init.py fallback version ($test_fallback_ver) != pyproject.toml ($pyproj_ver)" >&2
     ((errors++))
 fi
 
