@@ -12,6 +12,7 @@ implementations for:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import random
@@ -1612,9 +1613,26 @@ class AnthropicClient(InferenceClient):
                             self._last_update_time = now
                             update_callback(delta_info, None)
                         elif delta_type == "input_json_delta":
-                            pass
+                            idx = event.get("index", len(content_blocks) - 1)
+                            if (
+                                0 <= idx < len(content_blocks)
+                                and content_blocks[idx].get("type") == "tool_use"
+                            ):
+                                partial = delta.get("partial_json", "")
+                                if partial:
+                                    buf = content_blocks[idx].get("__json_buf", "")
+                                    buf += partial
+                                    content_blocks[idx]["__json_buf"] = buf
                     elif event_type == "content_block_stop":
-                        pass
+                        idx = event.get("index", len(content_blocks) - 1)
+                        if (
+                            0 <= idx < len(content_blocks)
+                            and content_blocks[idx].get("type") == "tool_use"
+                        ):
+                            buf = content_blocks[idx].pop("__json_buf", None)
+                            if buf:
+                                with contextlib.suppress(json.JSONDecodeError):
+                                    content_blocks[idx]["input"] = json.loads(buf)
                     elif event_type == "message_delta":
                         usage = event.get("usage", {})
                         output_tokens = usage.get("output_tokens", output_tokens)

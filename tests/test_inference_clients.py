@@ -4266,6 +4266,16 @@ class TestAnthropicClientAdditional:
         def callback(chunk, _subtask_name=None):
             callback_calls.append(chunk)
 
+        partial_json = json.dumps({"q": "hello"})
+        delta_event = json.dumps(
+            {
+                "type": "content_block_delta",
+                "delta": {
+                    "type": "input_json_delta",
+                    "partial_json": partial_json,
+                },
+            }
+        )
         mock_resp = MagicMock()
         mock_resp.iter_lines.return_value = [
             b"event: message_start",
@@ -4275,7 +4285,7 @@ class TestAnthropicClientAdditional:
             b'data: {"type": "content_block_start", "content_block": {"type": "tool_use", "id": "tu_1", "name": "search", "input": {}}}',
             b"",
             b"event: content_block_delta",
-            b'data: {"type": "content_block_delta", "delta": {"type": "input_json_delta", "partial_json": "{"q": "hello"}"}}',
+            b"data: " + delta_event.encode(),
             b"",
             b"event: content_block_stop",
             b'data: {"type": "content_block_stop"}',
@@ -4297,7 +4307,7 @@ class TestAnthropicClientAdditional:
             {
                 "id": "tu_1",
                 "type": "function",
-                "function": {"name": "search", "arguments": "{}"},
+                "function": {"name": "search", "arguments": '{"q": "hello"}'},
             }
         ]
         assert result["usage"]["prompt_tokens"] == 5
@@ -4755,6 +4765,44 @@ class TestAnthropicClientAdditional:
         ):
             result = client._chat_stream({"model": "test"}, callback, max_retries=3)
         assert result["choices"][0]["message"]["content"] == "OK"
+
+    def test_chat_stream_input_json_delta_out_of_bounds_index(self):
+        """Cover input_json_delta with index pointing to non-tool_use block (false branch of line 1617)."""
+        client = AnthropicClient(api_key="sk-ant-test")
+        callback_calls: list[dict[str, Any]] = []
+
+        def callback(chunk, _subtask_name=None):
+            callback_calls.append(chunk)
+
+        mock_resp = MagicMock()
+        # Send input_json_delta with index=5 while only 1 content block exists
+        mock_resp.iter_lines.return_value = [
+            b"event: message_start",
+            b'data: {"type": "message_start", "message": {"usage": {"input_tokens": 1, "output_tokens": 0}}}',
+            b"",
+            b"event: content_block_start",
+            b'data: {"type": "content_block_start", "content_block": {"type": "text", "text": "Hello"}}',
+            b"",
+            b"event: content_block_delta",
+            b'data: {"type": "content_block_delta", "delta": {"type": "input_json_delta", "partial_json": "test"}, "index": 5}',
+            b"",
+            b"event: content_block_stop",
+            b'data: {"type": "content_block_stop"}',
+            b"",
+            b"event: message_delta",
+            b'data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}}',
+            b"",
+            b"event: message_stop",
+            b'data: {"type": "message_stop"}',
+            b"",
+        ]
+        mock_resp.status_code = 200
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("tiz.inference_clients.requests.post", return_value=mock_resp):
+            result = client._chat_stream({"model": "test"}, callback)
+        assert result["choices"][0]["message"]["content"] == "Hello"
 
     def test_chat_stream_non_retryable_http_error_raises(self):
         """Cover Anthropic _chat_stream non-retryable HTTPError raising (line 1707)."""
