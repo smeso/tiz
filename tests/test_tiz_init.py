@@ -40,7 +40,7 @@ def test_version_fallback_on_empty_string() -> None:
     original_version = tiz.__version__
     with patch("importlib.metadata.version", return_value="") as mock_version:
         importlib.reload(tiz)
-        assert tiz.__version__ == "0.1.0"
+        assert tiz.__version__ == "0.1.1"
         mock_version.assert_called_once_with("tiz")
     tiz.__version__ = original_version
 
@@ -52,7 +52,7 @@ def test_version_fallback_on_package_not_found() -> None:
         side_effect=PackageNotFoundError,
     ) as mock_version:
         importlib.reload(tiz)
-        assert tiz.__version__ == "0.1.0"
+        assert tiz.__version__ == "0.1.1"
         mock_version.assert_called_once_with("tiz")
     tiz.__version__ = original_version
 
