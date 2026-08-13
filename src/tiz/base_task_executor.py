@@ -572,6 +572,7 @@ class BaseTaskExecutor:
                 or TIZ_COMMIT_AUTHOR_NAME,
                 committer_email=self.manifest.meta.committer_email
                 or TIZ_COMMIT_AUTHOR_EMAIL,
+                readonly_sandbox=task.readonly_sandbox,
             )
 
             if task.tools:

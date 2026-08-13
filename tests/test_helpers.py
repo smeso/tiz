@@ -1317,6 +1317,7 @@ def test_exec_cmd_sandbox_create_error(tmp_path: Path, monkeypatch: Any) -> None
         force_copy_files=None,
         committer_name="Tiz",
         committer_email="tiz@example.com",
+        readonly_sandbox=False,
     )
 
 
@@ -1393,6 +1394,7 @@ def test_exec_cmd_success(tmp_path: Path, monkeypatch: Any) -> None:
         force_copy_files=None,
         committer_name="Tiz",
         committer_email="tiz@example.com",
+        readonly_sandbox=False,
     )
     mock_manager.create_container.assert_called_once_with(
         sandbox_name="my_task",
@@ -1437,6 +1439,7 @@ def test_exec_cmd_success_default_task(tmp_path: Path, monkeypatch: Any) -> None
         force_copy_files=None,
         committer_name="Tiz",
         committer_email="tiz@example.com",
+        readonly_sandbox=False,
     )
     popen.assert_called_once_with(
         ["docker", "exec", "-it", "def456", "/bin/bash", "-l"]
@@ -1480,6 +1483,7 @@ def test_exec_cmd_success_with_project_and_force_copy(
         force_copy_files=["file1.txt", "file2.txt"],
         committer_name="Tiz",
         committer_email="tiz@example.com",
+        readonly_sandbox=True,
     )
     mock_manager.create_container.assert_called_once_with(
         sandbox_name="my_task",
@@ -1529,6 +1533,7 @@ def test_exec_cmd_success_with_project_no_force_copy(
         force_copy_files=None,
         committer_name="Tiz",
         committer_email="tiz@example.com",
+        readonly_sandbox=False,
     )
     mock_container.stop.assert_called_once_with(timeout=0)
 
@@ -1623,6 +1628,7 @@ def test_exec_cmd_task_name_whitespace(tmp_path: Path, monkeypatch: Any) -> None
         force_copy_files=None,
         committer_name="Tiz",
         committer_email="tiz@example.com",
+        readonly_sandbox=False,
     )
     mock_container.stop.assert_called_once_with(timeout=0)
 

@@ -2407,11 +2407,47 @@ def test_create_task_resources_readonly_sandbox(tmp_path: Path) -> None:
 
         executor._create_task_resources(task=task)
 
+    mgr_instance.create_sandbox.assert_called_once()
+    sandbox_kwargs = mgr_instance.create_sandbox.call_args.kwargs
+    assert sandbox_kwargs["readonly_sandbox"] is True
     mgr_instance.create_container.assert_called_once()
     call_kwargs = mgr_instance.create_container.call_args.kwargs
     assert call_kwargs["read_only_project"] is True
     assert call_kwargs["mount_project"] is True
     assert call_kwargs["use_host_timezone"] is True
+
+
+def test_create_task_resources_writable_sandbox_passes_readonly_false(
+    tmp_path: Path,
+) -> None:
+    task = _make_task(
+        name="rw_task",
+        readonly_sandbox=False,
+        tools=[ToolSpec(name="read_file", network="none", disk_mode="disk")],
+        actions=[PromptsAction(message_groups=[["x"]])],
+    )
+    manifest = _make_manifest(engines=[_make_llamacpp_engine()])
+    executor = _make_executor(manifest, tmp_path)
+
+    with (
+        patch("tiz.base_task_executor.SandboxManager") as mock_mgr_cls,
+        patch("tiz.base_task_executor.BaseTaskExecutor._discover_tools") as mock_disc,
+    ):
+        mgr_instance = MagicMock()
+        mock_mgr_cls.return_value = mgr_instance
+        sandbox_dirs = MagicMock()
+        mgr_instance.create_sandbox.return_value = sandbox_dirs
+        container_mock = MagicMock()
+        container_mock.worker_socket_path = "/tmp/sock"
+        mgr_instance.create_container.return_value = container_mock
+        tool_cls = MagicMock()
+        tool_cls.fname.return_value = "read_file"
+        mock_disc.return_value = {"read_file": tool_cls}
+
+        executor._create_task_resources(task=task)
+
+    sandbox_kwargs = mgr_instance.create_sandbox.call_args.kwargs
+    assert sandbox_kwargs["readonly_sandbox"] is False
 
 
 def test_create_task_resources_readonly_sandbox_with_disk_mode_raises(

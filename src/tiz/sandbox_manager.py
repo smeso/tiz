@@ -120,6 +120,7 @@ class SandboxManager:
         force_copy_files: list[str] | None = None,
         committer_name: str = TIZ_COMMIT_AUTHOR_NAME,
         committer_email: str = TIZ_COMMIT_AUTHOR_EMAIL,
+        readonly_sandbox: bool = False,
     ) -> SandboxDirs:
         """Create a new sandbox using SandboxDirs.
 
@@ -135,6 +136,9 @@ class SandboxManager:
             Name used for git commits created by the sync.
         committer_email:
             Email used for git commits created by the sync.
+        readonly_sandbox:
+            When ``True`` the original project directory is mounted read-only
+            into containers and no copy of the project is made.
         """
         logger.info("Creating sandbox '%s'", sandbox_name)
         sandbox = SandboxDirs(
@@ -143,6 +147,7 @@ class SandboxManager:
             base_path=self._base_path,
             commit_author_name=committer_name,
             commit_author_email=committer_email,
+            readonly_project=readonly_sandbox,
         )
         try:
             sandbox.create(force_copy_files=force_copy_files)

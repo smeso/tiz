@@ -3901,3 +3901,149 @@ def test_sync_to_original_all_branches_skips_head_ref(
     s.sync_to_original(all_branches=True)
     assert s.may_need_to_sync_to_original() is False
     assert (git_original_project / "sandbox_file.txt").read_text() == "sandbox file\n"
+
+
+# ===========================================================================
+# SandboxDirs – readonly project (no copy; original mounted directly)
+# ===========================================================================
+
+
+def test_create_readonly_project_no_copy(
+    fake_original_project: Path, sandbox_base: Path
+) -> None:
+    s = SandboxDirs(
+        "sb_ro_no_copy",
+        project_path=str(fake_original_project),
+        base_path=sandbox_base,
+        readonly_project=True,
+    )
+    s.create()
+    assert s.is_readonly is True
+    # No copy of the project is made inside the sandbox.
+    assert not (s._sandbox_dir / "project").exists()
+    # The sandbox project dir resolves to the original directory.
+    assert s.project_dir == fake_original_project.resolve()
+    assert (s.project_dir / "README.md").exists()
+    assert s.original_project_path == fake_original_project.resolve()
+    # Marker persisted so the readonly mode survives reopen.
+    assert (s._sandbox_dir / "readonly_project.txt").read_text().strip() == "true"
+
+
+def test_reopen_readonly_project_survives(
+    fake_original_project: Path, sandbox_base: Path
+) -> None:
+    s = SandboxDirs(
+        "sb_ro_reopen",
+        project_path=str(fake_original_project),
+        base_path=sandbox_base,
+        readonly_project=True,
+    )
+    s.create()
+    s2 = SandboxDirs("sb_ro_reopen", base_path=sandbox_base)
+    assert s2.is_readonly is True
+    assert s2.project_dir == fake_original_project.resolve()
+
+
+def test_readonly_project_validate_git_project_dir_noop(
+    git_original_project: Path, sandbox_base: Path
+) -> None:
+    s = SandboxDirs(
+        "sb_ro_validate",
+        project_path=str(git_original_project),
+        base_path=sandbox_base,
+        readonly_project=True,
+    )
+    s.create()
+    # Should not raise and must not touch the original's hooks.
+    s.validate_git_project_dir()
+    hooks_dir = git_original_project / ".git" / "hooks"
+    hook = hooks_dir / "pre-commit"
+    hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    s.validate_git_project_dir()
+    assert hook.exists()
+
+
+def test_readonly_project_sync_noop(
+    git_original_project: Path, sandbox_base: Path
+) -> None:
+    s = SandboxDirs(
+        "sb_ro_sync",
+        project_path=str(git_original_project),
+        base_path=sandbox_base,
+        readonly_project=True,
+    )
+    s.create()
+    _commit_file(git_original_project, "new.txt", "hello")
+    # No copy exists, so syncs are no-ops and never touch the original.
+    s.sync_from_original()
+    s.sync_to_original()
+    s.sync_to_original_auto_rebase()
+    assert s.may_need_to_sync_to_original() is False
+    assert (git_original_project / "new.txt").read_text() == "hello"
+
+
+def test_readonly_project_is_git_repo(
+    git_original_project: Path, sandbox_base: Path
+) -> None:
+    s = SandboxDirs(
+        "sb_ro_git",
+        project_path=str(git_original_project),
+        base_path=sandbox_base,
+        readonly_project=True,
+    )
+    s.create()
+    assert SandboxDirs.is_git_repo(s.project_dir) is True
+
+
+def test_create_writable_project_ignores_readonly_flag_file(
+    fake_original_project: Path, sandbox_base: Path
+) -> None:
+    s = SandboxDirs(
+        "sb_rw_marker",
+        project_path=str(fake_original_project),
+        base_path=sandbox_base,
+        readonly_project=False,
+    )
+    s.create()
+    assert s.is_readonly is False
+    assert (s._sandbox_dir / "project").exists()
+    assert not (s._sandbox_dir / "readonly_project.txt").exists()
+    # Reopen without the flag stays writable.
+    s2 = SandboxDirs("sb_rw_marker", base_path=sandbox_base)
+    assert s2.is_readonly is False
+    assert s2.project_dir == s.project_dir
+
+
+def test_reopen_readonly_project_false_flag(
+    fake_original_project: Path, sandbox_base: Path
+) -> None:
+    """A persisted 'false' marker keeps the sandbox writable on reopen."""
+    s = SandboxDirs(
+        "sb_rw_false_marker",
+        project_path=str(fake_original_project),
+        base_path=sandbox_base,
+        readonly_project=False,
+    )
+    s.create()
+    # Force a false marker onto the sandbox (as written by older/newer flows).
+    (s._sandbox_dir / "readonly_project.txt").write_text("false\n", encoding="utf-8")
+    s2 = SandboxDirs("sb_rw_false_marker", base_path=sandbox_base)
+    assert s2.is_readonly is False
+    assert s2.project_dir == s.project_dir
+
+
+def test_reopen_readonly_project_unknown_flag_value(
+    fake_original_project: Path, sandbox_base: Path
+) -> None:
+    """An unrecognised marker value is ignored on reopen."""
+    s = SandboxDirs(
+        "sb_unknown_marker",
+        project_path=str(fake_original_project),
+        base_path=sandbox_base,
+        readonly_project=False,
+    )
+    s.create()
+    (s._sandbox_dir / "readonly_project.txt").write_text("yes\n", encoding="utf-8")
+    s2 = SandboxDirs("sb_unknown_marker", base_path=sandbox_base)
+    assert s2.is_readonly is False
+    assert s2.project_dir == s.project_dir

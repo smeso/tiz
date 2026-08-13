@@ -105,6 +105,7 @@ def exec_cmd(
             force_copy_files=task.force_copy_files or None,
             committer_name=manifest.meta.committer_name or TIZ_COMMIT_AUTHOR_NAME,
             committer_email=manifest.meta.committer_email or TIZ_COMMIT_AUTHOR_EMAIL,
+            readonly_sandbox=task.readonly_sandbox,
         )
     except Exception as exc:
         return (

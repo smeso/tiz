@@ -26,6 +26,7 @@ logger = get_logger(__name__)
 
 META_CONTAINERS_FILE = "containers.json"
 META_PROJECT_PATH_FILE = "project_path.txt"
+META_READONLY_FILE = "readonly_project.txt"
 SHARED_GENERAL_DIR = "general"
 SHARED_SPECIFIC_DIR = "specific"
 
@@ -37,6 +38,18 @@ TIZ_COMMIT_AUTHOR_EMAIL = "tiz@example.com"
 _INVALID_NAME_RE = re.compile(r"(?:\.\.|[/\\\x00])")
 
 
+class SandboxProjectDir(Path):
+    """A ``Path`` pointing at the project directory visible to the sandbox.
+
+    When the sandbox is writable this is the copied ``project/`` directory
+    inside the sandbox.  When the sandbox is read-only there is no copy:
+    this resolves to the original project directory itself, which containers
+    mount read-only.
+    """
+
+    _flavour = type(Path())._flavour  # type: ignore[attr-defined]
+
+
 class SandboxDirs:
     """Manage files and directories in a sandbox base path.
 
@@ -45,7 +58,9 @@ class SandboxDirs:
       - ``shared/`` – a directory with sub-directories for shared artefacts:
           - ``shared/general/`` – shared by all containers in the sandbox
           - ``shared/specific/<container_name>/`` – shared only by that container
-      - ``project/`` – a copy of the user-supplied project directory
+      - ``project/`` – a copy of the user-supplied project directory (unless
+        the sandbox is read-only, in which case the original directory is
+        mounted directly and no copy is made)
       - ``containers.json`` – metadata about running containers
       - ``project_path.txt`` – the original project path that was copied
     """
@@ -60,6 +75,7 @@ class SandboxDirs:
         project_path: str | Path | None = None,
         commit_author_name: str = TIZ_COMMIT_AUTHOR_NAME,
         commit_author_email: str = TIZ_COMMIT_AUTHOR_EMAIL,
+        readonly_project: bool = False,
     ) -> None:
         """Create a sandbox manager.
 
@@ -71,11 +87,15 @@ class SandboxDirs:
             Base path for sandbox storage.
         project_path:
             Optional path to a project directory.  When provided the
-            ``project/`` sub-directory is populated on ``create``.
+            ``project/`` sub-directory is populated on ``create`` unless the
+            sandbox is read-only.
         commit_author_name:
             Name used for git commits created by the sync.
         commit_author_email:
             Email used for git commits created by the sync.
+        readonly_project:
+            When ``True`` the original project directory is mounted read-only
+            into containers and no copy of the project is made.
         """
         if _INVALID_NAME_RE.search(sandbox_name):
             raise ValueError(
@@ -90,6 +110,7 @@ class SandboxDirs:
         self._project_dir = self._sandbox_dir / "project"
         self._meta_containers_path = self._sandbox_dir / META_CONTAINERS_FILE
         self._meta_project_path_path = self._sandbox_dir / META_PROJECT_PATH_FILE
+        self._meta_readonly_path = self._sandbox_dir / META_READONLY_FILE
         self._commit_author_name = commit_author_name
         self._commit_author_email = commit_author_email
         self._lock_path = self._sandbox_dir / ".lock"
@@ -106,6 +127,14 @@ class SandboxDirs:
                 self._original_project_path: Path | None = Path(saved_path).resolve()
             else:
                 self._original_project_path = None
+            if self._meta_readonly_path.exists():
+                saved_readonly = (
+                    self._meta_readonly_path.read_text(encoding="utf-8").strip().lower()
+                )
+                if saved_readonly == "true":
+                    readonly_project = True
+                elif saved_readonly == "false":
+                    readonly_project = False
             if (
                 project_path is not None
                 and self._original_project_path != Path(project_path).resolve()
@@ -118,6 +147,7 @@ class SandboxDirs:
             self._original_project_path = (
                 Path(project_path).resolve() if project_path else None
             )
+        self._readonly_project = readonly_project
         if (
             self._original_project_path is not None
             and not self._original_project_path.exists()
@@ -177,6 +207,8 @@ class SandboxDirs:
         If ``.git`` exists it is checked for symlinks, then the
         repository is validated and hooks are removed.
         """
+        if self._readonly_project:
+            return
         if not self._project_dir.exists():
             return
         git_dir = self._project_dir / ".git"
@@ -340,9 +372,12 @@ class SandboxDirs:
             self._shared_general_dir.mkdir(parents=True, mode=0o700, exist_ok=False)
 
             if self._original_project_path is not None:
-                self._copy_project(
-                    self._original_project_path, force_copy_files=force_copy_files
-                )
+                if self._readonly_project:
+                    self._meta_readonly_path.write_text("true\n", encoding="utf-8")
+                else:
+                    self._copy_project(
+                        self._original_project_path, force_copy_files=force_copy_files
+                    )
                 self._meta_project_path_path.write_text(
                     str(self._original_project_path), encoding="utf-8"
                 )
@@ -521,7 +556,14 @@ class SandboxDirs:
 
     @property
     def project_dir(self) -> Path:
+        if self._readonly_project and self._original_project_path is not None:
+            return SandboxProjectDir(str(self._original_project_path))
         return self._project_dir
+
+    @property
+    def is_readonly(self) -> bool:
+        """Return ``True`` when the sandbox mounts the original project read-only."""
+        return self._readonly_project
 
     @property
     def shared_general_dir(self) -> Path:
@@ -660,6 +702,9 @@ class SandboxDirs:
         original_path = self._original_project_path
         if original_path is None or not original_path.exists():
             raise ValueError("Original project path not found")
+
+        if self._readonly_project:
+            return
 
         if self.is_git_repo(original_path):
             repo = git.Repo(original_path)
@@ -864,6 +909,8 @@ class SandboxDirs:
         original_path = self._original_project_path
         if original_path is None or not original_path.exists():
             return False
+        if self._readonly_project:
+            return False
         if not self._project_dir.exists():
             return False
 
@@ -917,6 +964,9 @@ class SandboxDirs:
         original_path = self._original_project_path
         if original_path is None or not original_path.exists():
             raise ValueError("Original project path not found")
+
+        if self._readonly_project:
+            return
 
         self.validate_git_project_dir()
 
