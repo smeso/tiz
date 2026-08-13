@@ -2,8 +2,8 @@ FROM tiz-worker
 
 USER root
 
-# v5.5.5
-ENV ESP_IDF_COMMIT=b774170ff46c393eeb5e495ea37936038d3f4f4f
+# v6.0.2
+ENV ESP_IDF_COMMIT=7101770dc6db2667b3c477cc31365dd1acd6db4e
 
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -22,6 +22,6 @@ RUN git clone --recursive https://github.com/espressif/esp-idf.git && \
     cd /home/ubuntu/esp-idf && \
     git reset --hard "${ESP_IDF_COMMIT}" && \
     git submodule update --init --recursive && \
-    ./install.sh all --enable-ci --enable-pytest \
+    ./install.sh all --enable-ci --enable-core \
                      --enable-test-specific && \
     python3 /home/ubuntu/esp-idf/tools/idf_tools.py install qemu-xtensa qemu-riscv32 esp-clang
