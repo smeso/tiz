@@ -22,5 +22,5 @@ CMD "/bin/bash"
 
 RUN git config --global user.email "tiz@example.com" && git config --global user.name "Tiz"
 
-ENV XDG_CACHE_HOME=/opt/share/cache/
-ENV XDG_CONFIG_HOME=/opt/share/config/
+ENV XDG_CACHE_HOME=/opt/container_shared/cache/
+ENV XDG_CONFIG_HOME=/opt/container_shared/config/
