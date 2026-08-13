@@ -1580,6 +1580,68 @@ def test_start_with_custom_tools_dir_none(sandbox_dirs: SandboxDirs) -> None:
     assert len(tools_mounts) == 0
 
 
+def test_start_with_extra_readonly_mounts(sandbox_dirs: SandboxDirs) -> None:
+    sc = SandboxContainer(sandbox_dirs)
+    captured_cmds: list[list[str]] = []
+
+    def capture(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        captured_cmds.append(cmd)
+        return _success_result()
+
+    with patch.object(sc, "_run_subprocess", side_effect=capture):
+        sc.start(
+            container_name="test-c",
+            oci_hooks=False,
+            use_host_timezone=False,
+            extra_readonly_mounts=[
+                (Path("/host/path1"), "/container/path1"),
+                (Path("/host/path2"), "/container/path2"),
+            ],
+        )
+    cmd = captured_cmds[0]
+    mount_indices = [i for i, c in enumerate(cmd) if c == "--mount"]
+    extra_mounts = [
+        cmd[i + 1] for i in mount_indices if "/container/path" in cmd[i + 1]
+    ]
+    assert len(extra_mounts) == 2
+    assert (
+        "type=bind,source=/host/path1,target=/container/path1,ro,nosuid,nodev"
+        in extra_mounts
+    )
+    assert (
+        "type=bind,source=/host/path2,target=/container/path2,ro,nosuid,nodev"
+        in extra_mounts
+    )
+    # Original mounts should still be present
+    original_mounts = [
+        cmd[i + 1] for i in mount_indices if ",target=/opt/shared," in cmd[i + 1]
+    ]
+    assert len(original_mounts) == 1
+
+
+def test_start_with_extra_readonly_mounts_none(sandbox_dirs: SandboxDirs) -> None:
+    sc = SandboxContainer(sandbox_dirs)
+    captured_cmds: list[list[str]] = []
+
+    def capture(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        captured_cmds.append(cmd)
+        return _success_result()
+
+    with patch.object(sc, "_run_subprocess", side_effect=capture):
+        sc.start(
+            container_name="test-c",
+            oci_hooks=False,
+            use_host_timezone=False,
+            extra_readonly_mounts=None,
+        )
+    cmd = captured_cmds[0]
+    mount_indices = [i for i, c in enumerate(cmd) if c == "--mount"]
+    extra_mounts = [
+        cmd[i + 1] for i in mount_indices if "/container/path" in cmd[i + 1]
+    ]
+    assert len(extra_mounts) == 0
+
+
 # ---------------------------------------------------------------------------
 # exists()
 # ---------------------------------------------------------------------------

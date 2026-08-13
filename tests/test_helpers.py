@@ -1252,6 +1252,7 @@ def _make_task(**kwargs: Any) -> MagicMock:
     task.readonly_sandbox = kwargs.get("readonly_sandbox", False)
     task.allow_parallel_run = kwargs.get("allow_parallel_run", False)
     task.actions = kwargs.get("actions", [])
+    task.readonly_mounts = kwargs.get("readonly_mounts", [])
     return task
 
 
@@ -1401,6 +1402,7 @@ def test_exec_cmd_success(tmp_path: Path, monkeypatch: Any) -> None:
         extra_run_args=None,
         verbose=0,
         use_host_timezone=True,
+        extra_readonly_mounts=None,
     )
     popen.assert_called_once_with(["docker", "exec", "-it", "abc123", "echo", "hello"])
     mock_proc.wait.assert_called_once_with()
@@ -1487,6 +1489,7 @@ def test_exec_cmd_success_with_project_and_force_copy(
         extra_run_args=None,
         verbose=0,
         use_host_timezone=True,
+        extra_readonly_mounts=None,
     )
 
 
@@ -1561,6 +1564,7 @@ def test_exec_cmd_verbosity_none(tmp_path: Path, monkeypatch: Any) -> None:
         extra_run_args=None,
         verbose=0,
         use_host_timezone=True,
+        extra_readonly_mounts=None,
     )
 
 
@@ -1729,6 +1733,58 @@ def test_exec_cmd_extra_run_args(tmp_path: Path, monkeypatch: Any) -> None:
         extra_run_args=extra_args,
         verbose=0,
         use_host_timezone=True,
+        extra_readonly_mounts=None,
+    )
+    mock_container.stop.assert_called_once_with(timeout=0)
+
+
+def test_exec_cmd_readonly_mounts_passed_to_container(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """Test that task readonly_mounts are passed as extra_readonly_mounts."""
+    task = _make_task(
+        name="my_task",
+        readonly_mounts=[
+            {"src": "/host/data", "dest": "/data"},
+            {"src": "/host/secrets", "dest": "/secrets"},
+        ],
+    )
+    manifest = _make_manifest(tasks=[task])
+
+    mock_manager = MagicMock()
+    manager_cls = MagicMock(return_value=mock_manager)
+    manager_cls.available_engine.return_value = "docker"
+    monkeypatch.setattr("tiz.helpers.SandboxManager", manager_cls)
+
+    mock_container = MagicMock()
+    mock_container.container_id = "abc123"
+    mock_manager.create_container.return_value = mock_container
+
+    mock_proc = MagicMock()
+    mock_proc.returncode = 0
+    popen = MagicMock(return_value=mock_proc)
+    monkeypatch.setattr("tiz.helpers.subprocess.Popen", popen)
+
+    result = exec_cmd(
+        manifest=manifest,
+        base_path=tmp_path,
+        task_name="my_task",
+        cmd_args=["bash"],
+    )
+
+    assert result is None
+    mock_manager.create_container.assert_called_once_with(
+        sandbox_name="my_task",
+        image="ubuntu",
+        network="internet",
+        read_only_project=False,
+        extra_run_args=None,
+        verbose=0,
+        use_host_timezone=True,
+        extra_readonly_mounts=[
+            (Path("/host/data"), "/data"),
+            (Path("/host/secrets"), "/secrets"),
+        ],
     )
     mock_container.stop.assert_called_once_with(timeout=0)
 

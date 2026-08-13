@@ -143,6 +143,7 @@ class SandboxContainer:
         use_host_timezone: bool = True,
         custom_tools_dir: Path | None = None,
         tmpfs_root: bool = False,
+        extra_readonly_mounts: list[tuple[Path, str]] | None = None,
     ) -> None:
         """Start a new sandbox container.
 
@@ -176,6 +177,9 @@ class SandboxContainer:
             When ``True``, use ``--image-volume=tmpfs`` instead of
             ``--read-only`` so that writable tmpfs overlays are used
             for the container rootfs.
+        extra_readonly_mounts:
+            Optional list of ``(source_path, target_path)`` tuples to
+            mount read-only inside the container.
         """
         if self._container_id is not None:
             raise RuntimeError("Container already started")
@@ -255,6 +259,15 @@ class SandboxContainer:
                     f"type=bind,source={custom_tools_dir},target=/opt/tiz_tools,ro,nosuid,nodev",
                 ]
             )
+
+        if extra_readonly_mounts is not None:
+            for source, target in extra_readonly_mounts:
+                cmd.extend(
+                    [
+                        "--mount",
+                        f"type=bind,source={source},target={target},ro,nosuid,nodev",
+                    ]
+                )
 
         cwd = CONTAINER_CWD_PROJECT if should_mount_project else CONTAINER_CWD_SHARED
         cmd.extend(["--workdir", cwd])

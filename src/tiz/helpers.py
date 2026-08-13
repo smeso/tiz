@@ -3,11 +3,11 @@ from __future__ import annotations
 import re
 import subprocess
 import traceback
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
-    from pathlib import Path
 
 from tiz.base_task_executor import BaseTaskExecutor
 from tiz.interactive_chat import InteractiveChat
@@ -114,6 +114,13 @@ def exec_cmd(
     cmd_to_run = cmd_args or ["/bin/bash", "-l"]
 
     image = task.worker_image
+
+    extra_readonly_mounts: list[tuple[Path, str]] | None = None
+    if task.readonly_mounts:
+        extra_readonly_mounts = [
+            (Path(m["src"]), m["dest"]) for m in task.readonly_mounts
+        ]
+
     try:
         container = manager.create_container(
             sandbox_name=sandbox_name,
@@ -127,6 +134,7 @@ def exec_cmd(
                 if manifest.meta.use_host_timezone is None
                 else manifest.meta.use_host_timezone
             ),
+            extra_readonly_mounts=extra_readonly_mounts,
         )
     except Exception as exc:
         manager.kill_and_delete_sandbox(sandbox_name)

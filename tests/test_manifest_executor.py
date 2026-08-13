@@ -127,6 +127,7 @@ def _make_task(
         inference_engine=inference_engine,
         tmpfs_root=kwargs.get("tmpfs_root", False),
         extra_container_args=kwargs.get("extra_container_args"),
+        readonly_mounts=kwargs.get("readonly_mounts", []),
     )
 
 

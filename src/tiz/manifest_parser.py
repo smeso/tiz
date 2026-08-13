@@ -15,7 +15,7 @@ import os
 import re
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 import yaml
 
@@ -29,6 +29,13 @@ _VALID_DISK_MODES: dict[str, int] = {"disk": 3, "ro-disk": 2, "ro_disk": 2, "nod
 DEFAULT_COLOR_REASONING = "#758182"
 DEFAULT_COLOR_INPUT = "#ff00ff"
 _DEFAULT_WORKER_IMAGE = "tiz-worker:latest"
+
+
+class ReadonlyMount(TypedDict):
+    """A readonly mount: the source host path and the destination container path."""
+
+    src: str
+    dest: str
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +149,7 @@ class TaskSpec:
     tmpfs_root: bool = False
     subagents: list[SubagentSpec] = dataclasses.field(default_factory=list)
     extra_container_args: list[str] | None = None
+    readonly_mounts: list[ReadonlyMount] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
@@ -980,6 +988,31 @@ class ManifestParser:
             )
         )
 
+        raw_readonly_mounts = self._get_key(raw_task, "readonly_mounts", [])
+        if isinstance(raw_readonly_mounts, list):
+            readonly_mounts: list[ReadonlyMount] = []
+            for item in raw_readonly_mounts:
+                if not isinstance(item, dict):
+                    raise ValueError(
+                        f"Each 'readonly_mounts' entry must be a dict with 'src' "
+                        f"and 'dest' keys, got {item!r}"
+                    )
+                missing = [k for k in ("src", "dest") if k not in item]
+                if missing:
+                    raise ValueError(
+                        f"Each 'readonly_mounts' entry must have keys {missing}, "
+                        f"got {item!r}"
+                    )
+                src, dst = str(item["src"]), str(item["dest"])
+                if not src or not dst:
+                    raise ValueError(
+                        f"'readonly_mounts' paths must be non-empty strings, "
+                        f"got {item!r}"
+                    )
+                readonly_mounts.append(ReadonlyMount(src=src, dest=dst))
+        else:
+            raise ValueError("'readonly_mounts' must be a list")
+
         raw_subagents: list[dict[str, Any]] = raw_task.get("subagents", []) or []
         subagents = (
             self._parse_subagents(
@@ -1011,6 +1044,7 @@ class ManifestParser:
             tmpfs_root=tmpfs_root,
             subagents=subagents,
             extra_container_args=extra_container_args,
+            readonly_mounts=readonly_mounts,
         )
 
     @staticmethod

@@ -143,6 +143,7 @@ def _make_task(
         tmpfs_root=kwargs.get("tmpfs_root", False),
         subagents=kwargs.get("subagents", []),
         extra_container_args=kwargs.get("extra_container_args"),
+        readonly_mounts=kwargs.get("readonly_mounts", []),
     )
 
 
@@ -4571,3 +4572,221 @@ def test_create_tool_instances_from_specs_with_confirmations(tmp_path: Path) -> 
     assert confirmations["bash"][0].value == "rm"
     # read_file has no confirmations
     assert "read_file" not in confirmations
+
+
+def test_create_tool_instances_from_specs_with_readonly_mounts(tmp_path: Path) -> None:
+    """readonly_mounts are converted to Path tuples and passed as extra_readonly_mounts."""
+    tool_specs = [ToolSpec(name="bash", network="none", disk_mode="nodisk")]
+    manifest = _make_manifest(engines=[_make_llamacpp_engine()])
+    executor = ManifestExecutor(manifest=manifest, base_path=tmp_path)
+    mock_manager = MagicMock()
+    container_mock = MagicMock()
+    container_mock.worker_socket_path = "/tmp/sock"
+    mock_manager.create_container.return_value = container_mock
+    tool_cls = MagicMock()
+    tool_cls.fname.return_value = "bash"
+    tool_instance = MagicMock()
+    tool_cls.return_value = tool_instance
+
+    readonly_mounts = [
+        {"src": "/host/path1", "dest": "/container/path1"},
+        {"src": "/host/path2", "dest": "/container/path2"},
+    ]
+    tools, confirmations = executor._create_tool_instances_from_specs(
+        tool_specs,
+        {"bash": tool_cls},
+        "sandbox1",
+        "tiz-worker:latest",
+        mock_manager,
+        error_context="direct",
+        readonly_mounts=readonly_mounts,
+    )
+
+    assert len(tools) == 1
+    assert confirmations == {}
+    mock_manager.create_container.assert_called_once()
+    call_kwargs = mock_manager.create_container.call_args.kwargs
+    assert call_kwargs["extra_readonly_mounts"] == [
+        (Path("/host/path1"), "/container/path1"),
+        (Path("/host/path2"), "/container/path2"),
+    ]
+
+
+def test_create_tool_instances_from_specs_readonly_mounts_none(tmp_path: Path) -> None:
+    """When readonly_mounts is None, extra_readonly_mounts is None."""
+    tool_specs = [ToolSpec(name="bash", network="none", disk_mode="nodisk")]
+    manifest = _make_manifest(engines=[_make_llamacpp_engine()])
+    executor = ManifestExecutor(manifest=manifest, base_path=tmp_path)
+    mock_manager = MagicMock()
+    container_mock = MagicMock()
+    container_mock.worker_socket_path = "/tmp/sock"
+    mock_manager.create_container.return_value = container_mock
+    tool_cls = MagicMock()
+    tool_cls.fname.return_value = "bash"
+    tool_instance = MagicMock()
+    tool_cls.return_value = tool_instance
+
+    tools, confirmations = executor._create_tool_instances_from_specs(
+        tool_specs,
+        {"bash": tool_cls},
+        "sandbox1",
+        "tiz-worker:latest",
+        mock_manager,
+        error_context="direct",
+    )
+
+    assert len(tools) == 1
+    assert confirmations == {}
+    call_kwargs = mock_manager.create_container.call_args.kwargs
+    assert call_kwargs["extra_readonly_mounts"] is None
+
+
+def test_create_tool_instances_from_specs_readonly_mounts_empty(tmp_path: Path) -> None:
+    """When readonly_mounts is an empty list, extra_readonly_mounts is None."""
+    tool_specs = [ToolSpec(name="bash", network="none", disk_mode="nodisk")]
+    manifest = _make_manifest(engines=[_make_llamacpp_engine()])
+    executor = ManifestExecutor(manifest=manifest, base_path=tmp_path)
+    mock_manager = MagicMock()
+    container_mock = MagicMock()
+    container_mock.worker_socket_path = "/tmp/sock"
+    mock_manager.create_container.return_value = container_mock
+    tool_cls = MagicMock()
+    tool_cls.fname.return_value = "bash"
+    tool_instance = MagicMock()
+    tool_cls.return_value = tool_instance
+
+    tools, confirmations = executor._create_tool_instances_from_specs(
+        tool_specs,
+        {"bash": tool_cls},
+        "sandbox1",
+        "tiz-worker:latest",
+        mock_manager,
+        error_context="direct",
+        readonly_mounts=[],
+    )
+
+    assert len(tools) == 1
+    assert confirmations == {}
+    call_kwargs = mock_manager.create_container.call_args.kwargs
+    assert call_kwargs["extra_readonly_mounts"] is None
+
+
+def test_create_task_resources_readonly_mounts_passed_to_containers(
+    tmp_path: Path,
+) -> None:
+    """readonly_mounts from task spec are passed to both tool and conversion containers."""
+    task = _make_task(
+        name="rom_task",
+        tools=[ToolSpec(name="read_file", network="none", disk_mode="disk")],
+        actions=[PromptsAction(message_groups=[["x"]])],
+        extra_container_args=["--cap-add=NET_ADMIN"],
+        readonly_mounts=[
+            {"src": "/etc/hosts", "dest": "/etc/hosts"},
+            {"src": "/etc/resolv.conf", "dest": "/etc/resolv.conf"},
+        ],
+    )
+    manifest = _make_manifest(
+        engines=[_make_llamacpp_engine()],
+        container_engine="podman",
+    )
+    executor = _make_executor(manifest, tmp_path)
+
+    with (
+        patch("tiz.base_task_executor.SandboxManager") as mock_mgr_cls,
+        patch("tiz.base_task_executor.BaseTaskExecutor._discover_tools") as mock_disc,
+    ):
+        mgr_instance = MagicMock()
+        mock_mgr_cls.return_value = mgr_instance
+        sandbox_dirs = MagicMock()
+        mgr_instance.create_sandbox.return_value = sandbox_dirs
+        container_mock = MagicMock()
+        container_mock.worker_socket_path = "/tmp/sock"
+        container_mock.shared_dir = None
+        conversion_container_mock = MagicMock()
+        conversion_container_mock.worker_socket_path = "/tmp/conv_sock"
+        conversion_container_mock.shared_dir = tmp_path / "conversion_shared"
+        mgr_instance.create_container.side_effect = [
+            container_mock,
+            conversion_container_mock,
+        ]
+        tool_cls = MagicMock()
+        tool_cls.fname.return_value = "read_file"
+        mock_disc.return_value = {"read_file": tool_cls}
+
+        resources = executor._create_task_resources(
+            task=task,
+            create_conversion_container=True,
+        )
+
+    assert len(resources.tool_instances) == 1
+    assert resources.sandbox is sandbox_dirs
+    assert resources.manager is mgr_instance
+    assert resources.conversion_sandbox is not None
+    assert mgr_instance.create_container.call_count == 2
+
+    expected_mounts = [
+        (Path("/etc/hosts"), "/etc/hosts"),
+        (Path("/etc/resolv.conf"), "/etc/resolv.conf"),
+    ]
+
+    # Tool container gets readonly_mounts via extra_readonly_mounts
+    tool_call_kwargs = mgr_instance.create_container.call_args_list[0].kwargs
+    assert tool_call_kwargs["extra_readonly_mounts"] == expected_mounts
+
+    # Conversion container also gets readonly_mounts via extra_readonly_mounts
+    conv_call_kwargs = mgr_instance.create_container.call_args_list[1].kwargs
+    assert conv_call_kwargs["extra_readonly_mounts"] == expected_mounts
+
+
+def test_create_task_resources_readonly_mounts_none(tmp_path: Path) -> None:
+    """When readonly_mounts is empty, extra_readonly_mounts is None for all containers."""
+    task = _make_task(
+        name="rom_none_task",
+        tools=[ToolSpec(name="read_file", network="none", disk_mode="disk")],
+        actions=[PromptsAction(message_groups=[["x"]])],
+        readonly_mounts=[],
+    )
+    manifest = _make_manifest(
+        engines=[_make_llamacpp_engine()],
+        container_engine="podman",
+    )
+    executor = _make_executor(manifest, tmp_path)
+
+    with (
+        patch("tiz.base_task_executor.SandboxManager") as mock_mgr_cls,
+        patch("tiz.base_task_executor.BaseTaskExecutor._discover_tools") as mock_disc,
+    ):
+        mgr_instance = MagicMock()
+        mock_mgr_cls.return_value = mgr_instance
+        sandbox_dirs = MagicMock()
+        mgr_instance.create_sandbox.return_value = sandbox_dirs
+        container_mock = MagicMock()
+        container_mock.worker_socket_path = "/tmp/sock"
+        container_mock.shared_dir = None
+        conversion_container_mock = MagicMock()
+        conversion_container_mock.worker_socket_path = "/tmp/conv_sock"
+        conversion_container_mock.shared_dir = tmp_path / "conversion_shared"
+        mgr_instance.create_container.side_effect = [
+            container_mock,
+            conversion_container_mock,
+        ]
+        tool_cls = MagicMock()
+        tool_cls.fname.return_value = "read_file"
+        mock_disc.return_value = {"read_file": tool_cls}
+
+        resources = executor._create_task_resources(
+            task=task,
+            create_conversion_container=True,
+        )
+
+    assert len(resources.tool_instances) == 1
+    assert resources.sandbox is sandbox_dirs
+    assert resources.manager is mgr_instance
+    assert resources.conversion_sandbox is not None
+    assert mgr_instance.create_container.call_count == 2
+
+    tool_call_kwargs = mgr_instance.create_container.call_args_list[0].kwargs
+    assert tool_call_kwargs["extra_readonly_mounts"] is None
+
+    conv_call_kwargs = mgr_instance.create_container.call_args_list[1].kwargs
+    assert conv_call_kwargs["extra_readonly_mounts"] is None

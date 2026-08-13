@@ -36,6 +36,7 @@ from tiz.manifest_parser import (
     ConfirmationSpec,
     InferenceEngineSpec,
     Manifest,
+    ReadonlyMount,
     SubagentSpec,
     TaskSpec,
     ToolSpec,
@@ -206,6 +207,7 @@ class BaseTaskExecutor:
                     error_context=f"sub-agent '{sub_spec.name}' tools",
                     default_readonly=task.readonly_sandbox,
                     extra_run_args=task.extra_container_args,
+                    readonly_mounts=task.readonly_mounts,
                 )
             )
             client = self._get_client_for_task_sub_agent(sub_spec)
@@ -381,6 +383,7 @@ class BaseTaskExecutor:
         error_context: str = "tools",
         default_readonly: bool | None = None,
         extra_run_args: list[str] | None = None,
+        readonly_mounts: list[ReadonlyMount] | None = None,
     ) -> tuple[list[Tool], dict[str, list[ConfirmationSpec]]]:
         if not tool_specs:
             return [], {}
@@ -409,6 +412,12 @@ class BaseTaskExecutor:
                 else self.manifest.meta.use_host_timezone
             )
 
+            extra_readonly_mounts: list[tuple[Path, str]] | None = None
+            if readonly_mounts:
+                extra_readonly_mounts = [
+                    (Path(m["src"]), m["dest"]) for m in readonly_mounts
+                ]
+
             container = manager.create_container(
                 sandbox_name=sandbox_name,
                 image=worker_image,
@@ -418,6 +427,7 @@ class BaseTaskExecutor:
                 verbose=self.manifest.meta.verbosity or 0,
                 use_host_timezone=host_tz,
                 extra_run_args=extra_run_args,
+                extra_readonly_mounts=extra_readonly_mounts,
             )
             if container.worker_socket_path is not None:
                 sock_paths[(disk_mode, network)] = str(container.worker_socket_path)
@@ -578,6 +588,7 @@ class BaseTaskExecutor:
                         error_context="task.tools",
                         default_readonly=task.readonly_sandbox,
                         extra_run_args=task.extra_container_args,
+                        readonly_mounts=task.readonly_mounts,
                     )
                 )
 
@@ -594,6 +605,11 @@ class BaseTaskExecutor:
                     if self.manifest.meta.use_host_timezone is None
                     else self.manifest.meta.use_host_timezone
                 )
+                extra_readonly_mounts_conv: list[tuple[Path, str]] | None = None
+                if task.readonly_mounts:
+                    extra_readonly_mounts_conv = [
+                        (Path(m["src"]), m["dest"]) for m in task.readonly_mounts
+                    ]
                 conversion_container = manager.create_container(
                     sandbox_name=sandbox_name,
                     image=task.worker_image,
@@ -603,6 +619,7 @@ class BaseTaskExecutor:
                     verbose=self.manifest.meta.verbosity or 0,
                     use_host_timezone=conv_host_tz,
                     extra_run_args=task.extra_container_args,
+                    extra_readonly_mounts=extra_readonly_mounts_conv,
                 )
                 if conversion_container.worker_socket_path is not None:
                     conversion_bash = Bash(

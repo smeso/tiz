@@ -464,6 +464,7 @@ def test_create_container_auto_name(sandbox_base: Path) -> None:
         verbose=0,
         use_host_timezone=True,
         custom_tools_dir=None,
+        extra_readonly_mounts=None,
     )
 
 
@@ -487,6 +488,7 @@ def test_create_container_explicit_name(sandbox_base: Path) -> None:
         verbose=0,
         use_host_timezone=True,
         custom_tools_dir=None,
+        extra_readonly_mounts=None,
     )
 
 
@@ -577,6 +579,7 @@ def test_create_container_network_internet_rewritten(sandbox_base: Path) -> None
         verbose=0,
         use_host_timezone=True,
         custom_tools_dir=None,
+        extra_readonly_mounts=None,
     )
 
 
@@ -621,6 +624,7 @@ def test_create_container_network_none_not_rewritten(sandbox_base: Path) -> None
         verbose=0,
         use_host_timezone=True,
         custom_tools_dir=None,
+        extra_readonly_mounts=None,
     )
 
 
@@ -644,6 +648,7 @@ def test_create_container_network_bridge_not_rewritten(sandbox_base: Path) -> No
         verbose=0,
         use_host_timezone=True,
         custom_tools_dir=None,
+        extra_readonly_mounts=None,
     )
 
 
@@ -669,6 +674,7 @@ def test_create_container_network_default_none_not_rewritten(
         verbose=0,
         use_host_timezone=True,
         custom_tools_dir=None,
+        extra_readonly_mounts=None,
     )
 
 
@@ -698,6 +704,7 @@ def test_create_container_with_extra_args(sandbox_base: Path) -> None:
         verbose=0,
         use_host_timezone=True,
         custom_tools_dir=None,
+        extra_readonly_mounts=None,
     )
 
 
@@ -725,6 +732,7 @@ def test_create_container_base_path_does_not_exist(sandbox_base: Path) -> None:
         verbose=0,
         use_host_timezone=True,
         custom_tools_dir=None,
+        extra_readonly_mounts=None,
     )
 
 
@@ -750,6 +758,7 @@ def test_create_container_with_tools_worker_dir(sandbox_base: Path) -> None:
         verbose=0,
         use_host_timezone=True,
         custom_tools_dir=tools_worker,
+        extra_readonly_mounts=None,
     )
 
 
@@ -777,6 +786,7 @@ def test_create_container_base_path_exists_but_no_tools_worker_dir(
         verbose=0,
         use_host_timezone=True,
         custom_tools_dir=None,
+        extra_readonly_mounts=None,
     )
 
 
@@ -800,6 +810,7 @@ def test_create_container_mount_project_false(sandbox_base: Path) -> None:
         verbose=0,
         use_host_timezone=True,
         custom_tools_dir=None,
+        extra_readonly_mounts=None,
     )
 
 
@@ -823,6 +834,7 @@ def test_create_container_verbose_1(sandbox_base: Path) -> None:
         verbose=1,
         use_host_timezone=True,
         custom_tools_dir=None,
+        extra_readonly_mounts=None,
     )
 
 
@@ -846,6 +858,7 @@ def test_create_container_verbose_2(sandbox_base: Path) -> None:
         verbose=2,
         use_host_timezone=True,
         custom_tools_dir=None,
+        extra_readonly_mounts=None,
     )
 
 
@@ -869,6 +882,41 @@ def test_create_container_use_host_timezone_false(sandbox_base: Path) -> None:
         verbose=0,
         use_host_timezone=False,
         custom_tools_dir=None,
+        extra_readonly_mounts=None,
+    )
+
+
+def test_create_container_with_extra_readonly_mounts(sandbox_base: Path) -> None:
+    mgr = _auto_detect(sandbox_base)
+    sb = SandboxDirs("sb1", base_path=sandbox_base / "sandboxes")
+    sb.create()
+    sc = MagicMock(spec=SandboxContainer)
+    with patch("tiz.sandbox_manager.SandboxContainer", return_value=sc):
+        mgr.create_container(
+            "sb1",
+            image="myimg",
+            extra_readonly_mounts=[
+                (Path("/host/foo"), "/container/foo"),
+                (Path("/host/bar"), "/container/bar"),
+            ],
+        )
+    name = sc.start.call_args[1]["container_name"]
+    assert name.startswith(f"{TIZ_WORKER_PREFIX}sb1_")
+    assert len(name) == len(f"{TIZ_WORKER_PREFIX}sb1_") + 3
+    sc.start.assert_called_once_with(
+        image="myimg",
+        container_name=name,
+        network="none",
+        read_only_project=False,
+        mount_project=True,
+        extra_run_args=None,
+        verbose=0,
+        use_host_timezone=True,
+        custom_tools_dir=None,
+        extra_readonly_mounts=[
+            (Path("/host/foo"), "/container/foo"),
+            (Path("/host/bar"), "/container/bar"),
+        ],
     )
 
 

@@ -231,6 +231,7 @@ class SandboxManager:
         extra_run_args: list[str] | None = None,
         verbose: int = 0,
         use_host_timezone: bool = True,
+        extra_readonly_mounts: list[tuple[Path, str]] | None = None,
     ) -> SandboxContainer:
         """Create and start a new sandbox container.
 
@@ -256,6 +257,10 @@ class SandboxManager:
         use_host_timezone:
             When ``True`` (default) bind-mount ``/etc/localtime`` read-only
             inside the container so it uses the host's timezone.
+        extra_readonly_mounts:
+            Optional list of ``(source_path, target_path)`` tuples to
+            mount read-only inside the container. Passed through to
+            ``SandboxContainer.start()``.
         """
         sandbox = SandboxDirs(sandbox_name=sandbox_name, base_path=self._base_path)
         if network == "internet":
@@ -304,6 +309,7 @@ class SandboxManager:
             verbose=verbose,
             use_host_timezone=use_host_timezone,
             custom_tools_dir=tools_worker_path,
+            extra_readonly_mounts=extra_readonly_mounts,
         )
         return container
 

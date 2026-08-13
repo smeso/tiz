@@ -159,6 +159,7 @@ def test_merge_two_manifests() -> None:
                 inference_engine=None,
                 tmpfs_root=False,
                 extra_container_args=None,
+                readonly_mounts=[],
             )
         ],
         inference_engines=[
@@ -198,6 +199,7 @@ def test_merge_two_manifests() -> None:
                 inference_engine=None,
                 tmpfs_root=False,
                 extra_container_args=None,
+                readonly_mounts=[],
             )
         ],
         inference_engines=[],
@@ -2394,6 +2396,194 @@ def test_parse_task_extra_container_args_underscore_wins() -> None:
     )
     parser = ManifestParser(data=data, path=None)
     assert parser.tasks[0].extra_container_args == ["--cap-add=SYS_ADMIN"]
+
+
+# ---------------------------------------------------------------------------
+# readonly_mounts
+# ---------------------------------------------------------------------------
+
+
+def test_parse_task_readonly_mounts_default() -> None:
+    """readonly_mounts should default to empty list."""
+    data = _make_data(meta=_MINIMAL_META, tasks=[{"name": "t"}])
+    parser = ManifestParser(data=data, path=None)
+    assert parser.tasks[0].readonly_mounts == []
+
+
+def test_parse_task_readonly_mounts_single_entry() -> None:
+    """readonly_mounts with a single entry."""
+    data = _make_data(
+        meta=_MINIMAL_META,
+        tasks=[
+            {
+                "name": "t",
+                "readonly_mounts": [{"src": "/host/path", "dest": "/container/path"}],
+            }
+        ],
+    )
+    parser = ManifestParser(data=data, path=None)
+    assert parser.tasks[0].readonly_mounts == [
+        {"src": "/host/path", "dest": "/container/path"}
+    ]
+
+
+def test_parse_task_readonly_mounts_multiple_entries() -> None:
+    """readonly_mounts with multiple entries."""
+    data = _make_data(
+        meta=_MINIMAL_META,
+        tasks=[
+            {
+                "name": "t",
+                "readonly_mounts": [
+                    {"src": "/host/a", "dest": "/container/a"},
+                    {"src": "/host/b", "dest": "/container/b"},
+                ],
+            }
+        ],
+    )
+    parser = ManifestParser(data=data, path=None)
+    assert parser.tasks[0].readonly_mounts == [
+        {"src": "/host/a", "dest": "/container/a"},
+        {"src": "/host/b", "dest": "/container/b"},
+    ]
+
+
+def test_parse_task_readonly_mounts_not_a_list_raises() -> None:
+    """readonly_mounts must be a list."""
+    data = _make_data(
+        meta=_MINIMAL_META,
+        tasks=[
+            {
+                "name": "t",
+                "readonly_mounts": "not-a-list",
+            }
+        ],
+    )
+    with pytest.raises(ValueError, match="'readonly_mounts' must be a list"):
+        ManifestParser(data=data, path=None)
+
+
+def test_parse_task_readonly_mounts_entry_not_dict_raises() -> None:
+    """Each readonly_mounts entry must be a dict."""
+    data = _make_data(
+        meta=_MINIMAL_META,
+        tasks=[
+            {
+                "name": "t",
+                "readonly_mounts": [["/src", "/dst"]],
+            }
+        ],
+    )
+    with pytest.raises(
+        ValueError,
+        match="Each 'readonly_mounts' entry must be a dict with 'src' and 'dest' keys",
+    ):
+        ManifestParser(data=data, path=None)
+
+
+def test_parse_task_readonly_mounts_entry_missing_key_raises() -> None:
+    """Each readonly_mounts entry must have both 'src' and 'dest' keys."""
+    data = _make_data(
+        meta=_MINIMAL_META,
+        tasks=[
+            {
+                "name": "t",
+                "readonly_mounts": [{"src": "/src"}],
+            }
+        ],
+    )
+    with pytest.raises(
+        ValueError,
+        match="Each 'readonly_mounts' entry must have keys \\['dest'\\]",
+    ):
+        ManifestParser(data=data, path=None)
+
+
+def test_parse_task_readonly_mounts_entry_empty_string_raises() -> None:
+    """readonly_mounts paths must be non-empty."""
+    data = _make_data(
+        meta=_MINIMAL_META,
+        tasks=[
+            {
+                "name": "t",
+                "readonly_mounts": [{"src": "/host", "dest": ""}],
+            }
+        ],
+    )
+    with pytest.raises(
+        ValueError, match="'readonly_mounts' paths must be non-empty strings"
+    ):
+        ManifestParser(data=data, path=None)
+
+
+def test_parse_task_readonly_mounts_entry_int_paths() -> None:
+    """readonly_mounts paths should be converted to strings even if ints."""
+    data = _make_data(
+        meta=_MINIMAL_META,
+        tasks=[
+            {
+                "name": "t",
+                "readonly_mounts": [{"src": 42, "dest": "/dst"}],
+            }
+        ],
+    )
+    parser = ManifestParser(data=data, path=None)
+    assert parser.tasks[0].readonly_mounts == [{"src": "42", "dest": "/dst"}]
+
+
+def test_parse_task_readonly_mounts_hyphenated() -> None:
+    """Hyphenated readonly-mounts should work."""
+    data = _make_data(
+        meta=_MINIMAL_META,
+        tasks=[
+            {
+                "name": "t",
+                "readonly-mounts": [{"src": "/a", "dest": "/b"}],
+            }
+        ],
+    )
+    parser = ManifestParser(data=data, path=None)
+    assert parser.tasks[0].readonly_mounts == [{"src": "/a", "dest": "/b"}]
+
+
+def test_parse_task_readonly_mounts_underscore_wins() -> None:
+    """Underscore readonly_mounts wins over hyphenated."""
+    data = _make_data(
+        meta=_MINIMAL_META,
+        tasks=[
+            {
+                "name": "t",
+                "readonly_mounts": [{"src": "/a", "dest": "/b"}],
+                "readonly-mounts": [{"src": "/c", "dest": "/d"}],
+            }
+        ],
+    )
+    parser = ManifestParser(data=data, path=None)
+    assert parser.tasks[0].readonly_mounts == [{"src": "/a", "dest": "/b"}]
+
+
+def test_parse_task_readonly_mounts_integration_with_full_task() -> None:
+    """readonly_mounts works alongside other task fields."""
+    data = _make_data(
+        meta=_MINIMAL_META,
+        tasks=[
+            {
+                "name": "t",
+                "tools": [{"Bash": "internet"}],
+                "readonly_sandbox": True,
+                "readonly_mounts": [{"src": "/host", "dest": "/container"}],
+                "actions": [{"prompts": [["hello"]]}],
+            }
+        ],
+    )
+    parser = ManifestParser(data=data, path=None)
+    task = parser.tasks[0]
+    assert task.name == "t"
+    assert task.readonly_sandbox is True
+    assert task.readonly_mounts == [{"src": "/host", "dest": "/container"}]
+    assert len(task.tools) == 1
+    assert len(task.actions) == 1
+    assert isinstance(task.actions[0], PromptsAction)
 
 
 # ---------------------------------------------------------------------------
