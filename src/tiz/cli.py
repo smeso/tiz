@@ -379,6 +379,9 @@ class StreamInput:
                 if not raw:
                     return {"message": "", "command": ""}
 
+                if raw.lower() == "exit":
+                    raw = "/exit"
+
                 if raw.startswith("/"):
                     parts = raw.split(maxsplit=1)
                     cmd = parts[0]

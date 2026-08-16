@@ -1646,6 +1646,24 @@ def test_stream_input_command_with_arg(monkeypatch):
     assert result == {"message": "/tmp/test.txt", "command": "/attach"}
 
 
+def test_stream_input_exit_command(monkeypatch):
+    """'exit' is converted to the /exit command."""
+    monkeypatch.setattr("tiz.cli.readline", None)
+    inp = StreamInput(color_input="#ff00ff", color=False)
+    with patch("builtins.input", return_value="exit"):
+        result = inp()
+    assert result == {"message": "", "command": "/exit"}
+
+
+def test_stream_input_exit_command_uppercase(monkeypatch):
+    """'EXIT' (case-insensitive) is converted to the /exit command."""
+    monkeypatch.setattr("tiz.cli.readline", None)
+    inp = StreamInput(color_input="#ff00ff", color=False)
+    with patch("builtins.input", return_value="EXIT"):
+        result = inp()
+    assert result == {"message": "", "command": "/exit"}
+
+
 def test_stream_input_empty(monkeypatch):
     monkeypatch.setattr("tiz.cli.readline", None)
     inp = StreamInput(color_input="#ff00ff", color=False)
