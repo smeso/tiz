@@ -8,7 +8,7 @@ RUN apt-get update && \
         python3-argcomplete python3-argparse-manpage \
         lintian devscripts debhelper dh-python \
         python3-all shellcheck python3-websockets \
-        python3-htmlmin python3-rjsmin npm \
+        python3-htmlmin python3-rjsmin npm shfmt \
         podman && \
     npm install -g stylelint@^16 stylelint-config-standard@^16 && \
     npm install -g htmlhint && \
