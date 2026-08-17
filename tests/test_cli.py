@@ -3103,7 +3103,8 @@ def test_handle_stats_usage_with_records(capsys, tmp_path):
         "  ----------------------------------------------------------------------------\n"
         "  2024-01-15               90           50           10            5  0.0100000000$\n"
         "  ----------------------------------------------------------------------------\n"
-        "  TOTAL                    90           50           10            5  0.0100000000$\n\n"
+        "  TOTAL                    90           50           10            5  0.0100000000$\n"
+        "  Price/1M tokens: 66.666667$  Cache ratio: 10.00%  Output ratio: 50.00%\n\n"
     )
     assert captured.out == expected
 
@@ -3140,7 +3141,8 @@ def test_handle_stats_usage_with_from_date_is_none(capsys, tmp_path, monkeypatch
         "  ----------------------------------------------------------------------------\n"
         "  2024-01-15              100            0            0            0  0.0000000000$\n"
         "  ----------------------------------------------------------------------------\n"
-        "  TOTAL                   100            0            0            0  0.0000000000$\n\n"
+        "  TOTAL                   100            0            0            0  0.0000000000$\n"
+        "  Price/1M tokens: 0.000000$  Cache ratio: 0.00%  Output ratio: 0.00%\n\n"
     )
     assert captured.out == expected
 
@@ -4485,6 +4487,31 @@ def test_print_usage_no_tool_calls(capsys):
     assert "Tools usage:" in captured.out
 
 
+def test_handle_stats_usage_zero_tokens(capsys, tmp_path):
+    """Zero token totals should print zero ratios without dividing by zero."""
+    usage_dir = tmp_path / "usage"
+    usage_dir.mkdir()
+    (usage_dir / "20240115_120000_openai_test.log").write_text(
+        json.dumps({"prompt_tokens": 0, "completion_tokens": 0, "cost": 0.0}),
+        encoding="utf-8",
+    )
+    args = _make_stats_args(to_date="2024-01-31", from_date="2024-01-01")
+    result = _handle_stats_usage(args, tmp_path)
+    assert result == 0
+    captured = capsys.readouterr()
+    expected = (
+        " [openai]\n"
+        "----------------------------------------------------------------------------------\n"
+        "  Period                Input       Output       Cached       CWrite           Cost\n"
+        "  ----------------------------------------------------------------------------\n"
+        "  2024-01-15                0            0            0            0  0.0000000000$\n"
+        "  ----------------------------------------------------------------------------\n"
+        "  TOTAL                     0            0            0            0  0.0000000000$\n"
+        "  Price/1M tokens: 0.000000$  Cache ratio: 0.00%  Output ratio: 0.00%\n\n"
+    )
+    assert captured.out == expected
+
+
 def test_handle_stats_usage_multiple_records_same_engine(capsys, tmp_path):
     usage_dir = tmp_path / "usage"
     usage_dir.mkdir()
@@ -4506,7 +4533,8 @@ def test_handle_stats_usage_multiple_records_same_engine(capsys, tmp_path):
         "  2024-01-15              100           50            0            0  0.0100000000$\n"
         "  2024-01-16              200          100            0            0  0.0200000000$\n"
         "  ----------------------------------------------------------------------------\n"
-        "  TOTAL                   300          150            0            0  0.0300000000$\n\n"
+        "  TOTAL                   300          150            0            0  0.0300000000$\n"
+        "  Price/1M tokens: 66.666667$  Cache ratio: 0.00%  Output ratio: 50.00%\n\n"
     )
     assert captured.out == expected
 
@@ -4531,7 +4559,8 @@ def test_handle_stats_usage_same_date_multiple_records(capsys, tmp_path):
         "  ----------------------------------------------------------------------------\n"
         "  2024-01-15              300          150            0            0  0.0300000000$\n"
         "  ----------------------------------------------------------------------------\n"
-        "  TOTAL                   300          150            0            0  0.0300000000$\n\n"
+        "  TOTAL                   300          150            0            0  0.0300000000$\n"
+        "  Price/1M tokens: 66.666667$  Cache ratio: 0.00%  Output ratio: 50.00%\n\n"
     )
     assert captured.out == expected
 

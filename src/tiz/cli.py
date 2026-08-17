@@ -1090,6 +1090,15 @@ def _handle_stats_usage(args: argparse.Namespace, log_dir: Path) -> int:
             f" {total_cached:>12,} {total_cache_write:>12,}"
             f" {total_cost:>13.10f}$"
         )
+        all_tokens = total_prompt + total_completion
+        price_per_million = total_cost / all_tokens * 1_000_000 if all_tokens else 0.0
+        cache_ratio = total_cached / total_prompt if total_prompt else 0.0
+        output_ratio = total_completion / total_prompt if total_prompt else 0.0
+        print(
+            f"  Price/1M tokens: {price_per_million:.6f}$  "
+            f"Cache ratio: {cache_ratio * 100:.2f}%  "
+            f"Output ratio: {output_ratio * 100:.2f}%"
+        )
         print()
 
     return 0
