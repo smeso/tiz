@@ -12,7 +12,7 @@ RUN apt-get update && \
         flex bison gperf python3-pip python3-venv cmake ninja-build cppcheck \
         libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0 \
         libffi-dev libssl-dev dfu-util libusb-1.0-0 minify gcovr \
-        cmake-format shellcheck shfmt python3-pip && \
+        cmake-format shellcheck shfmt python3-pip libbsd-dev && \
     pip install --break-system-packages ruff && \
     echo "tiz-worker-esp32" > /etc/debian_chroot && \
     echo "pu port /dev/ttyACM0" >> /etc/minicom/minirc.dfl && \
