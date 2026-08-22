@@ -1,0 +1,26 @@
+FROM tiz-worker
+
+USER root
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        build-essential git cmake ccache python3 ninja-build \
+        nasm yasm gawk lsb-release wget software-properties-common \
+        gnupg wget curl && \
+    wget https://apt.llvm.org/llvm.sh && \
+    chmod +x llvm.sh && \
+    ./llvm.sh 22 && \
+    rm llvm.sh && \
+    echo ". /home/ubuntu/.cargo/env" >> /etc/bash.bashrc && \
+    echo "tiz-worker-ch" > /etc/debian_chroot
+
+USER ubuntu
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
+    . "/home/ubuntu/.cargo/env" && \
+    rustup toolchain install nightly-2026-03-22 && \
+    rustup default nightly-2026-03-22 && \
+    rustup component add rust-src
+
+ENV CC=clang-22
+ENV CXX=clang++-22
