@@ -9,6 +9,7 @@ import os
 import re
 import signal
 import socket
+import stat
 import struct
 import subprocess
 import sys
@@ -612,15 +613,18 @@ def _tool_read_multi(params: dict[str, Any]) -> tuple[str, bool]:
 def _tool_metadata(params: dict[str, Any]) -> tuple[str, bool]:
     path = Path(params.get("path", "")).expanduser()
     try:
-        is_symlink = path.is_symlink()
+        is_symlink = stat.S_ISLNK(path.lstat().st_mode)
     except OSError:
         is_symlink = False
     resolved = path.resolve(strict=False)
 
-    if not resolved.exists() and not is_symlink:
-        return json.dumps(
-            {"exists": False, "error": f"Path not found: {resolved}"}
-        ), False
+    try:
+        resolved.stat()
+    except FileNotFoundError:
+        if not is_symlink:
+            return json.dumps(
+                {"exists": False, "error": f"Path not found: {resolved}"}
+            ), False
 
     try:
         st = path.lstat() if is_symlink else resolved.lstat()

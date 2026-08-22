@@ -6,8 +6,10 @@ import asyncio
 import ctypes
 import json
 import re
+import sys
 import threading
 import time
+import types
 import warnings
 from collections import deque
 from collections.abc import Callable, Iterable, Mapping
@@ -403,6 +405,11 @@ def _minify_if_possible(content: bytes, content_type: str) -> bytes:
             return content
     else:
         try:
+            if sys.version_info >= (3, 13) and "cgi" not in sys.modules:
+                try:
+                    import cgi  # noqa: F401
+                except ModuleNotFoundError:
+                    sys.modules["cgi"] = types.ModuleType("cgi")
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", message=".*cgi.*deprecated.*")
                 import htmlmin  # noqa: PLC0415

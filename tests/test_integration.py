@@ -2312,6 +2312,67 @@ class TestMetadataIsSymlinkOSError:
         finally:
             parent.chmod(0o755)
 
+    def test_metadata_lstat_permission_error_raw_socket(
+        self, sandbox_server, socket_path_server, tmp_path
+    ):
+        """Cover the _tool_metadata lstat OSError handler on Python 3.14.
+
+        On Python 3.14 Path.is_symlink() swallows OSError, so the worker
+        stats the path directly; a parent directory without execute
+        permission makes lstat() raise PermissionError, which is caught
+        and treated as 'not a symlink'.
+        """
+        parent = tmp_path / "locked_dir"
+        parent.mkdir()
+        inner = parent / "inner.txt"
+        inner.write_text("data", encoding="utf-8")
+        parent.chmod(0o000)
+        try:
+            resp = _send_raw_socket(
+                socket_path_server,
+                {"name": "FileMetadata", "path": str(inner)},
+            )
+            assert resp["error"] is True
+            assert "Tool execution failed unexpectedly" in resp["result"]
+        finally:
+            parent.chmod(0o755)
+
+    def test_metadata_lstat_symlink_raw_socket(
+        self, sandbox_server, socket_path_server, tmp_path
+    ):
+        """Symlink detection via lstat keeps working after the OSError guard."""
+        target = tmp_path / "target.txt"
+        target.write_text("data", encoding="utf-8")
+        link = tmp_path / "link.txt"
+        link.symlink_to(target)
+        resp = _send_raw_socket(
+            socket_path_server,
+            {"name": "FileMetadata", "path": str(link)},
+        )
+        assert resp["error"] is False
+        data = json.loads(resp["result"])
+        assert data["exists"] is True
+        assert data["type"] == "symlink"
+        assert data["size"] is None
+        assert data["error"] is None
+
+    def test_metadata_lstat_regular_file_raw_socket(
+        self, sandbox_server, socket_path_server, tmp_path
+    ):
+        """Regular-file metadata keeps working after the lstat-based check."""
+        f = tmp_path / "plain.txt"
+        f.write_text("hello", encoding="utf-8")
+        resp = _send_raw_socket(
+            socket_path_server,
+            {"name": "FileMetadata", "path": str(f)},
+        )
+        assert resp["error"] is False
+        data = json.loads(resp["result"])
+        assert data["exists"] is True
+        assert data["type"] == "file"
+        assert data["size"] == 5
+        assert data["error"] is None
+
 
 class TestMetadataLstatOSError:
     """Test metadata for a broken symlink (symlink whose target has been removed)."""

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sys
 import threading
 import time
 from pathlib import Path
@@ -3790,3 +3791,151 @@ def test_run_simple_with_endpoints_and_app_holder(tmp_path: Path) -> None:
         )
 
     assert len(app_holder) == 1
+
+
+def test_static_html_minify_py313_cgi_import(
+    manifest: Manifest, tmp_path: Path
+) -> None:
+    """Serve minified HTML over HTTP with the Python 3.13+ cgi import shim.
+
+    Simulates Python >= 3.13 where ``import cgi`` still works, so the
+    successful-import branch of the shim in _minify_if_possible runs
+    (web_api.py lines 409-410). The HTML file is fetched over HTTP and
+    must come back minified.
+    """
+    from collections import namedtuple
+
+    from tiz.web_api import clear_minify_cache
+
+    async def _test() -> None:
+        from websockets.server import serve
+
+        clear_minify_cache()
+
+        static_dir = tmp_path / "static"
+        static_dir.mkdir()
+        (static_dir / "py313.html").write_text(
+            "<!-- comment --><html>\n<body>\n<p>Hi</p>\n</body>\n</html>",
+            encoding="utf-8",
+        )
+
+        app = App()
+        app._static_dir = static_dir
+        app.add_endpoint(
+            "chat",
+            EndpointConfig(manifest=manifest, base_path=tmp_path),
+        )
+
+        server = await serve(
+            app._ws_handler,
+            "127.0.0.1",
+            0,
+            process_request=app._process_request,
+            server_header=None,
+            ping_interval=None,
+            max_size=100 * 1024 * 1024,
+        )
+        sockets = tuple(server.sockets)
+        port = sockets[0].getsockname()[1]
+
+        try:
+            status, body = await _http_get("127.0.0.1", port, "/py313.html")
+            assert status == 200
+            assert body == b"<html><body><p>Hi</p></body></html>"
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    version_info = namedtuple(
+        "version_info", ["major", "minor", "micro", "releaselevel", "serial"]
+    )
+    had_cgi = "cgi" in sys.modules
+    orig_cgi = sys.modules.get("cgi")
+    try:
+        sys.modules.pop("cgi", None)
+        with patch("tiz.web_api.sys.version_info", version_info(3, 13, 0, "final", 0)):
+            asyncio.run(_test())
+    finally:
+        if had_cgi and orig_cgi is not None:
+            sys.modules["cgi"] = orig_cgi
+        else:
+            sys.modules.pop("cgi", None)
+
+
+def test_static_html_minify_py313_cgi_import_missing(
+    manifest: Manifest, tmp_path: Path
+) -> None:
+    """Serve minified HTML over HTTP when ``import cgi`` raises.
+
+    Simulates Python >= 3.13 with the ``cgi`` module removed, so the shim
+    installs a placeholder module (web_api.py lines 411-412). The HTML
+    file is fetched over HTTP and must come back minified.
+    """
+    import builtins
+    from collections import namedtuple
+
+    from tiz.web_api import clear_minify_cache
+
+    async def _test() -> None:
+        from websockets.server import serve
+
+        clear_minify_cache()
+
+        static_dir = tmp_path / "static"
+        static_dir.mkdir()
+        (static_dir / "py313-nocgi.html").write_text(
+            "<!-- comment --><html>\n<body>\n<p>Hi</p>\n</body>\n</html>",
+            encoding="utf-8",
+        )
+
+        app = App()
+        app._static_dir = static_dir
+        app.add_endpoint(
+            "chat",
+            EndpointConfig(manifest=manifest, base_path=tmp_path),
+        )
+
+        server = await serve(
+            app._ws_handler,
+            "127.0.0.1",
+            0,
+            process_request=app._process_request,
+            server_header=None,
+            ping_interval=None,
+            max_size=100 * 1024 * 1024,
+        )
+        sockets = tuple(server.sockets)
+        port = sockets[0].getsockname()[1]
+
+        try:
+            status, body = await _http_get("127.0.0.1", port, "/py313-nocgi.html")
+            assert status == 200
+            assert body == b"<html><body><p>Hi</p></body></html>"
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    version_info = namedtuple(
+        "version_info", ["major", "minor", "micro", "releaselevel", "serial"]
+    )
+    orig_import = builtins.__import__
+
+    def _mock_import(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name == "cgi" and "cgi" not in sys.modules:
+            raise ModuleNotFoundError(f"No module named '{name}'")
+        return orig_import(name, *args, **kwargs)
+
+    had_cgi = "cgi" in sys.modules
+    orig_cgi = sys.modules.get("cgi")
+    try:
+        sys.modules.pop("cgi", None)
+        with (
+            patch("tiz.web_api.sys.version_info", version_info(3, 13, 0, "final", 0)),
+            patch("builtins.__import__", side_effect=_mock_import),
+        ):
+            asyncio.run(_test())
+    finally:
+        if had_cgi and orig_cgi is not None:
+            sys.modules["cgi"] = orig_cgi
+        else:
+            sys.modules.pop("cgi", None)

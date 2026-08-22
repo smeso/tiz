@@ -413,6 +413,25 @@ class TestMinify:
         assert len(result) < len(content)
         assert b"<circle" in result
 
+    def test_html_minification_cgi_shim(self, monkeypatch) -> None:
+        """htmlmin needs a cgi shim on Python 3.13+ where cgi was removed."""
+        import builtins
+        import sys as _sys
+
+        orig_import = builtins.__import__
+        monkeypatch.setattr(_sys, "version_info", (3, 13, 0))
+        monkeypatch.delitem(_sys.modules, "cgi", raising=False)
+
+        def mock_import(name, *args, **kwargs):
+            if name == "cgi":
+                raise ModuleNotFoundError("No module named 'cgi'")
+            return orig_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", mock_import)
+        content = b"<html>\n<p>Hello</p>\n</html>"
+        result = _minify_if_possible(content, "text/html")
+        assert len(result) < len(content)
+
     def test_minify_cache_used(self) -> None:
         """Minified content should be cached in _minify_cache."""
         clear_minify_cache()

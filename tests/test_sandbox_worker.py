@@ -1736,6 +1736,29 @@ def test_metadata_oserror(tmp_path: Path) -> None:
     assert is_error is True
 
 
+def test_metadata_is_symlink_oserror(tmp_path: Path) -> None:
+    p = tmp_path / "testfile"
+    p.write_text("hello", encoding="utf-8")
+    with patch.object(Path, "is_symlink", side_effect=OSError("permission denied")):
+        result, is_error = tiz.sandbox_worker._tool_metadata({"path": str(p)})
+    data = json.loads(result)
+    assert data["exists"] is True
+    assert data["type"] == "file"
+    assert is_error is False
+
+
+def test_metadata_broken_symlink(tmp_path: Path) -> None:
+    link = tmp_path / "link"
+    link.symlink_to(tmp_path / "nonexistent-target")
+    result, is_error = tiz.sandbox_worker._tool_metadata({"path": str(link)})
+    data = json.loads(result)
+    assert data["exists"] is True
+    assert data["type"] == "symlink"
+    assert data["size"] is None
+    assert data["error"] is None
+    assert is_error is False
+
+
 def test_metadata_special_file(tmp_path: Path) -> None:
     import socket as _socket
 
