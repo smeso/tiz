@@ -574,6 +574,9 @@ class BaseTaskExecutor:
                 committer_email=self.manifest.meta.committer_email
                 or TIZ_COMMIT_AUTHOR_EMAIL,
                 readonly_sandbox=task.readonly_sandbox,
+                dangerous_allow_direct_repo_write=(
+                    task.dangerous_allow_direct_repo_write
+                ),
             )
 
             if task.tools:

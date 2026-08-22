@@ -152,6 +152,7 @@ class TaskSpec:
     subagents: list[SubagentSpec] = dataclasses.field(default_factory=list)
     extra_container_args: list[str] | None = None
     readonly_mounts: list[ReadonlyMount] = dataclasses.field(default_factory=list)
+    dangerous_allow_direct_repo_write: bool = False
 
 
 @dataclasses.dataclass
@@ -994,6 +995,17 @@ class ManifestParser:
 
         tmpfs_root = self._to_bool(self._get_key(raw_task, "tmpfs_root", False))
 
+        dangerous_allow_direct_repo_write = self._to_bool(
+            self._get_key(raw_task, "dangerous_allow_direct_repo_write", False)
+        )
+        if dangerous_allow_direct_repo_write:
+            logger.warning(
+                "Task '%s' enables 'dangerous_allow_direct_repo_write': "
+                "the agent will be able to write directly to the repository. "
+                "This is dangerous.",
+                name,
+            )
+
         raw_actions: list[dict[str, Any]] = raw_task.get("actions", []) or []
         actions = self._parse_actions(raw_actions)
 
@@ -1075,6 +1087,7 @@ class ManifestParser:
             subagents=subagents,
             extra_container_args=extra_container_args,
             readonly_mounts=readonly_mounts,
+            dangerous_allow_direct_repo_write=dangerous_allow_direct_repo_write,
         )
 
     @staticmethod

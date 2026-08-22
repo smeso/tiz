@@ -122,6 +122,7 @@ class SandboxManager:
         committer_name: str = TIZ_COMMIT_AUTHOR_NAME,
         committer_email: str = TIZ_COMMIT_AUTHOR_EMAIL,
         readonly_sandbox: bool = False,
+        dangerous_allow_direct_repo_write: bool = False,
     ) -> SandboxDirs:
         """Create a new sandbox using SandboxDirs.
 
@@ -140,6 +141,10 @@ class SandboxManager:
         readonly_sandbox:
             When ``True`` the original project directory is mounted read-only
             into containers and no copy of the project is made.
+        dangerous_allow_direct_repo_write:
+            When ``True`` the sandbox writes directly to the original project
+            directory instead of a copy.  Mutually exclusive with
+            ``readonly_sandbox``.
         """
         logger.info("Creating sandbox '%s'", sandbox_name)
         sandbox = SandboxDirs(
@@ -149,6 +154,7 @@ class SandboxManager:
             commit_author_name=committer_name,
             commit_author_email=committer_email,
             readonly_project=readonly_sandbox,
+            dangerous_allow_direct_repo_write=dangerous_allow_direct_repo_write,
         )
         try:
             sandbox.create(force_copy_files=force_copy_files)

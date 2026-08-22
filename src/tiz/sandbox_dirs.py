@@ -27,6 +27,7 @@ logger = get_logger(__name__)
 META_CONTAINERS_FILE = "containers.json"
 META_PROJECT_PATH_FILE = "project_path.txt"
 META_READONLY_FILE = "readonly_project.txt"
+META_DIRECT_REPO_WRITE_FILE = "direct_repo_write.txt"
 SHARED_GENERAL_DIR = "general"
 SHARED_SPECIFIC_DIR = "specific"
 
@@ -65,7 +66,8 @@ class SandboxDirs:
           - ``shared/specific/<container_name>/`` – shared only by that container
       - ``project/`` – a copy of the user-supplied project directory (unless
         the sandbox is read-only, in which case the original directory is
-        mounted directly and no copy is made)
+        mounted directly and no copy is made, or direct repo write is enabled,
+        in which case ``project/`` is a symlink to the original directory)
       - ``containers.json`` – metadata about running containers
       - ``project_path.txt`` – the original project path that was copied
     """
@@ -81,6 +83,7 @@ class SandboxDirs:
         commit_author_name: str = TIZ_COMMIT_AUTHOR_NAME,
         commit_author_email: str = TIZ_COMMIT_AUTHOR_EMAIL,
         readonly_project: bool = False,
+        dangerous_allow_direct_repo_write: bool = False,
     ) -> None:
         """Create a sandbox manager.
 
@@ -101,6 +104,11 @@ class SandboxDirs:
         readonly_project:
             When ``True`` the original project directory is mounted read-only
             into containers and no copy of the project is made.
+        dangerous_allow_direct_repo_write:
+            When ``True`` the ``project/`` sub-directory is created as a
+            symlink to the original project directory instead of a copy, so
+            sandbox writes go directly to the original repository.  Mutually
+            exclusive with ``readonly_project``.
         """
         if _INVALID_NAME_RE.search(sandbox_name):
             raise ValueError(
@@ -116,6 +124,9 @@ class SandboxDirs:
         self._meta_containers_path = self._sandbox_dir / META_CONTAINERS_FILE
         self._meta_project_path_path = self._sandbox_dir / META_PROJECT_PATH_FILE
         self._meta_readonly_path = self._sandbox_dir / META_READONLY_FILE
+        self._meta_direct_repo_write_path = (
+            self._sandbox_dir / META_DIRECT_REPO_WRITE_FILE
+        )
         self._commit_author_name = commit_author_name
         self._commit_author_email = commit_author_email
         self._lock_path = self._sandbox_dir / ".lock"
@@ -140,6 +151,16 @@ class SandboxDirs:
                     readonly_project = True
                 elif saved_readonly == "false":
                     readonly_project = False
+            if self._meta_direct_repo_write_path.exists():
+                saved_direct = (
+                    self._meta_direct_repo_write_path.read_text(encoding="utf-8")
+                    .strip()
+                    .lower()
+                )
+                if saved_direct == "true":
+                    dangerous_allow_direct_repo_write = True
+                elif saved_direct == "false":
+                    dangerous_allow_direct_repo_write = False
             if (
                 project_path is not None
                 and self._original_project_path != Path(project_path).resolve()
@@ -152,7 +173,13 @@ class SandboxDirs:
             self._original_project_path = (
                 Path(project_path).resolve() if project_path else None
             )
+        if readonly_project and dangerous_allow_direct_repo_write:
+            raise ValueError(
+                "readonly_project and dangerous_allow_direct_repo_write "
+                "cannot both be enabled"
+            )
         self._readonly_project = readonly_project
+        self._dangerous_allow_direct_repo_write = dangerous_allow_direct_repo_write
         if (
             self._original_project_path is not None
             and not self._original_project_path.exists()
@@ -379,6 +406,13 @@ class SandboxDirs:
             if self._original_project_path is not None:
                 if self._readonly_project:
                     self._meta_readonly_path.write_text("true\n", encoding="utf-8")
+                elif self._dangerous_allow_direct_repo_write:
+                    self._project_dir.symlink_to(
+                        self._original_project_path, target_is_directory=True
+                    )
+                    self._meta_direct_repo_write_path.write_text(
+                        "true\n", encoding="utf-8"
+                    )
                 else:
                     self._copy_project(
                         self._original_project_path, force_copy_files=force_copy_files
@@ -571,6 +605,11 @@ class SandboxDirs:
         return self._readonly_project
 
     @property
+    def allows_direct_repo_write(self) -> bool:
+        """Return ``True`` when the sandbox writes directly to the original project."""
+        return self._dangerous_allow_direct_repo_write
+
+    @property
     def shared_general_dir(self) -> Path:
         return self._shared_general_dir
 
@@ -711,6 +750,10 @@ class SandboxDirs:
         if self._readonly_project:
             return
 
+        if self._dangerous_allow_direct_repo_write:
+            self.validate_git_project_dir()
+            return
+
         if self.is_git_repo(original_path):
             repo = git.Repo(original_path)
             try:
@@ -742,6 +785,9 @@ class SandboxDirs:
         When *force* is ``True`` the sandbox is hard-reset to match
         the original.
         """
+        if self._dangerous_allow_direct_repo_write:
+            self.validate_git_project_dir()
+            return
         remote_name = "tiz-original-tmp"
 
         orig_repo = git.Repo(original_path)
@@ -809,6 +855,9 @@ class SandboxDirs:
             repo.close()
 
     def _sync_copy_from_original(self, original_path: Path) -> None:
+        if self._dangerous_allow_direct_repo_write:
+            self.validate_git_project_dir()
+            return
         self._copytree_update(original_path, self._project_dir)
 
     def _copytree_update(self, src: Path, dst: Path) -> None:
@@ -916,6 +965,8 @@ class SandboxDirs:
             return False
         if self._readonly_project:
             return False
+        if self._dangerous_allow_direct_repo_write:
+            return False
         if not self._project_dir.exists():
             return False
 
@@ -975,6 +1026,9 @@ class SandboxDirs:
 
         self.validate_git_project_dir()
 
+        if self._dangerous_allow_direct_repo_write:
+            return
+
         if self.is_git_repo(self._project_dir) and self.is_git_repo(original_path):
             self._sync_git_pull_from_sandbox(
                 original_path, force=force, all_branches=all_branches
@@ -1002,6 +1056,9 @@ class SandboxDirs:
             When ``True`` pull all branches from the sandbox instead of
             only the currently active one.
         """
+        if self._dangerous_allow_direct_repo_write:
+            self.validate_git_project_dir()
+            return
         sandbox_repo = git.Repo(self._project_dir)
         try:
             if sandbox_repo.is_dirty(untracked_files=True):
@@ -1188,6 +1245,9 @@ class SandboxDirs:
 
     def _sync_patch(self, original_path: Path) -> None:
         """Create a unified diff patch in *original_path*/tiz_patches/."""
+        if self._dangerous_allow_direct_repo_write:
+            self.validate_git_project_dir()
+            return
         patches_dir = original_path / TIZ_PATCHES_DIR
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         patch_name = f"tiz_sync_{timestamp}.patch"

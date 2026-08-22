@@ -2380,6 +2380,7 @@ def test_parse_task_minimal_task() -> None:
     assert task.extra_container_args is None
     assert task.dedicated_audio_engine is None
     assert task.subagents == []
+    assert task.dangerous_allow_direct_repo_write is False
 
 
 def test_parse_task_all_fields() -> None:
@@ -2549,6 +2550,84 @@ def test_parse_task_extra_container_args_underscore_wins() -> None:
     )
     parser = ManifestParser(data=data, path=None)
     assert parser.tasks[0].extra_container_args == ["--cap-add=SYS_ADMIN"]
+
+
+# ---------------------------------------------------------------------------
+# dangerous_allow_direct_repo_write
+# ---------------------------------------------------------------------------
+
+
+def test_parse_task_dangerous_allow_direct_repo_write_default() -> None:
+    """dangerous_allow_direct_repo_write should default to False."""
+    data = _make_data(meta=_MINIMAL_META, tasks=[{"name": "t"}])
+    parser = ManifestParser(data=data, path=None)
+    assert parser.tasks[0].dangerous_allow_direct_repo_write is False
+
+
+def test_parse_task_dangerous_allow_direct_repo_write_true_warns(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Setting dangerous_allow_direct_repo_write to True should log a warning."""
+    data = _make_data(
+        meta=_MINIMAL_META,
+        tasks=[{"name": "t", "dangerous_allow_direct_repo_write": True}],
+    )
+    with caplog.at_level("WARNING", logger="tiz.manifest_parser"):
+        parser = ManifestParser(data=data, path=None)
+    assert parser.tasks[0].dangerous_allow_direct_repo_write is True
+    assert "dangerous" in caplog.text
+    assert "dangerous_allow_direct_repo_write" in caplog.text
+    assert "Task 't'" in caplog.text
+
+
+def test_parse_task_dangerous_allow_direct_repo_write_false_no_warn(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Setting dangerous_allow_direct_repo_write to False should not warn."""
+    data = _make_data(
+        meta=_MINIMAL_META,
+        tasks=[{"name": "t", "dangerous_allow_direct_repo_write": False}],
+    )
+    with caplog.at_level("WARNING", logger="tiz.manifest_parser"):
+        parser = ManifestParser(data=data, path=None)
+    assert parser.tasks[0].dangerous_allow_direct_repo_write is False
+    assert "dangerous_allow_direct_repo_write" not in caplog.text
+
+
+def test_parse_task_dangerous_allow_direct_repo_write_string_true() -> None:
+    """dangerous_allow_direct_repo_write: 'true' (quoted) should be True."""
+    data = _make_data(
+        meta=_MINIMAL_META,
+        tasks=[{"name": "t", "dangerous_allow_direct_repo_write": "true"}],
+    )
+    parser = ManifestParser(data=data, path=None)
+    assert parser.tasks[0].dangerous_allow_direct_repo_write is True
+
+
+def test_parse_task_dangerous_allow_direct_repo_write_hyphenated() -> None:
+    """Hyphenated dangerous-allow-direct-repo-write should work."""
+    data = _make_data(
+        meta=_MINIMAL_META,
+        tasks=[{"name": "t", "dangerous-allow-direct-repo-write": True}],
+    )
+    parser = ManifestParser(data=data, path=None)
+    assert parser.tasks[0].dangerous_allow_direct_repo_write is True
+
+
+def test_parse_task_dangerous_allow_direct_repo_write_underscore_wins() -> None:
+    """Underscore key should win over hyphenated."""
+    data = _make_data(
+        meta=_MINIMAL_META,
+        tasks=[
+            {
+                "name": "t",
+                "dangerous_allow_direct_repo_write": True,
+                "dangerous-allow-direct-repo-write": False,
+            }
+        ],
+    )
+    parser = ManifestParser(data=data, path=None)
+    assert parser.tasks[0].dangerous_allow_direct_repo_write is True
 
 
 # ---------------------------------------------------------------------------

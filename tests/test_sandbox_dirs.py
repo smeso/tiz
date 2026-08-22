@@ -13,7 +13,12 @@ from unittest.mock import patch
 import git
 import pytest
 
-from tiz.sandbox_dirs import TIZ_PATCHES_DIR, SandboxDirs, SandboxProjectDir
+from tiz.sandbox_dirs import (
+    META_DIRECT_REPO_WRITE_FILE,
+    TIZ_PATCHES_DIR,
+    SandboxDirs,
+    SandboxProjectDir,
+)
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -4126,3 +4131,329 @@ def test_reopen_readonly_project_unknown_flag_value(
     s2 = SandboxDirs("sb_unknown_marker", base_path=sandbox_base)
     assert s2.is_readonly is False
     assert s2.project_dir == s.project_dir
+
+
+# ===========================================================================
+# SandboxDirs – dangerous direct repo write (project/ is a symlink)
+# ===========================================================================
+
+
+def test_create_direct_repo_write_symlink(
+    fake_original_project: Path, sandbox_base: Path
+) -> None:
+    s = SandboxDirs(
+        "sb_direct_write",
+        project_path=str(fake_original_project),
+        base_path=sandbox_base,
+        dangerous_allow_direct_repo_write=True,
+    )
+    assert s.allows_direct_repo_write is True
+    assert s.is_readonly is False
+    s.create()
+    assert s.exists()
+    assert s.allows_direct_repo_write is True
+    # project/ is a symlink to the original project, not a copy.
+    assert (s._sandbox_dir / "project").is_symlink()
+    assert s.project_dir == s._project_dir
+    assert s.project_dir.resolve() == fake_original_project.resolve()
+    assert (s.project_dir / "README.md").read_text() == "# Hello"
+    # Writes through the sandbox land directly in the original project.
+    (s.project_dir / "from_sandbox.txt").write_text("direct\n", encoding="utf-8")
+    assert (fake_original_project / "from_sandbox.txt").read_text() == "direct\n"
+    # Metadata persisted.
+    assert (s._sandbox_dir / META_DIRECT_REPO_WRITE_FILE).read_text().strip() == "true"
+    assert not (s._sandbox_dir / "readonly_project.txt").exists()
+    assert (s._sandbox_dir / "project_path.txt").read_text().strip() == str(
+        fake_original_project.resolve()
+    )
+    assert s.original_project_path == fake_original_project.resolve()
+
+
+def test_create_direct_repo_write_git_project(
+    git_original_project: Path, sandbox_base: Path
+) -> None:
+    s = SandboxDirs(
+        "sb_direct_write_git",
+        project_path=str(git_original_project),
+        base_path=sandbox_base,
+        dangerous_allow_direct_repo_write=True,
+    )
+    s.create()
+    assert (s._sandbox_dir / "project").is_symlink()
+    # The sandbox repo is the original repo itself.
+    assert SandboxDirs.is_git_repo(s.project_dir) is True
+    assert s.project_dir.resolve() == git_original_project.resolve()
+
+
+def test_reopen_direct_repo_write_survives(
+    fake_original_project: Path, sandbox_base: Path
+) -> None:
+    s = SandboxDirs(
+        "sb_direct_write_reopen",
+        project_path=str(fake_original_project),
+        base_path=sandbox_base,
+        dangerous_allow_direct_repo_write=True,
+    )
+    s.create()
+    s2 = SandboxDirs("sb_direct_write_reopen", base_path=sandbox_base)
+    assert s2.allows_direct_repo_write is True
+    assert s2.is_readonly is False
+    assert (s2._sandbox_dir / "project").is_symlink()
+    assert s2.project_dir == s._project_dir
+
+
+def test_reopen_direct_repo_write_false_flag(
+    fake_original_project: Path, sandbox_base: Path
+) -> None:
+    """A persisted 'false' marker keeps the sandbox in copy mode on reopen."""
+    s = SandboxDirs(
+        "sb_direct_write_false_marker",
+        project_path=str(fake_original_project),
+        base_path=sandbox_base,
+    )
+    s.create()
+    assert (s._sandbox_dir / "project").is_dir()
+    assert not (s._sandbox_dir / "project").is_symlink()
+    # Force a false marker onto the sandbox (as written by older/newer flows).
+    (s._sandbox_dir / META_DIRECT_REPO_WRITE_FILE).write_text(
+        "false\n", encoding="utf-8"
+    )
+    s2 = SandboxDirs("sb_direct_write_false_marker", base_path=sandbox_base)
+    assert s2.allows_direct_repo_write is False
+    assert s2.project_dir == s.project_dir
+    assert (s2._sandbox_dir / "project").is_dir()
+    assert not (s2._sandbox_dir / "project").is_symlink()
+
+
+def test_reopen_direct_repo_write_unknown_flag_value(
+    fake_original_project: Path, sandbox_base: Path
+) -> None:
+    """An unrecognised marker value is ignored on reopen."""
+    s = SandboxDirs(
+        "sb_direct_write_unknown_marker",
+        project_path=str(fake_original_project),
+        base_path=sandbox_base,
+    )
+    s.create()
+    (s._sandbox_dir / META_DIRECT_REPO_WRITE_FILE).write_text("yes\n", encoding="utf-8")
+    s2 = SandboxDirs("sb_direct_write_unknown_marker", base_path=sandbox_base)
+    assert s2.allows_direct_repo_write is False
+    assert s2.project_dir == s.project_dir
+
+
+def test_direct_repo_write_conflicts_with_readonly(
+    fake_original_project: Path, sandbox_base: Path
+) -> None:
+    with pytest.raises(ValueError, match="cannot both be enabled"):
+        SandboxDirs(
+            "sb_conflict",
+            project_path=str(fake_original_project),
+            base_path=sandbox_base,
+            readonly_project=True,
+            dangerous_allow_direct_repo_write=True,
+        )
+
+
+def test_reopen_conflicting_markers_raise(
+    fake_original_project: Path, sandbox_base: Path
+) -> None:
+    """Conflicting persisted markers are rejected on reopen."""
+    s = SandboxDirs(
+        "sb_conflict_markers",
+        project_path=str(fake_original_project),
+        base_path=sandbox_base,
+        readonly_project=True,
+    )
+    s.create()
+    (s._sandbox_dir / META_DIRECT_REPO_WRITE_FILE).write_text(
+        "true\n", encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="cannot both be enabled"):
+        SandboxDirs("sb_conflict_markers", base_path=sandbox_base)
+
+
+def test_remove_direct_repo_write_sandbox_keeps_original(
+    fake_original_project: Path, sandbox_base: Path
+) -> None:
+    s = SandboxDirs(
+        "sb_direct_write_remove",
+        project_path=str(fake_original_project),
+        base_path=sandbox_base,
+        dangerous_allow_direct_repo_write=True,
+    )
+    s.create()
+    s.remove()
+    assert not s.exists()
+    # Removing the sandbox must not remove the original project.
+    assert fake_original_project.exists()
+    assert (fake_original_project / "README.md").read_text() == "# Hello"
+
+
+# ===========================================================================
+# SandboxDirs – direct repo write: syncs are no-ops but still validate
+# ===========================================================================
+
+
+def test_direct_repo_write_sync_from_original_noop_but_validates(
+    git_original_project: Path, sandbox_base: Path
+) -> None:
+    s = SandboxDirs(
+        "sb_dw_sync_from",
+        project_path=str(git_original_project),
+        base_path=sandbox_base,
+        dangerous_allow_direct_repo_write=True,
+    )
+    s.create()
+    # A dirty original normally makes sync_from_original raise; with direct
+    # repo write nothing is synced, so it must not raise.
+    (git_original_project / "dirty.txt").write_text("dirty\n", encoding="utf-8")
+    with patch.object(
+        s, "validate_git_project_dir", wraps=s.validate_git_project_dir
+    ) as mock_validate:
+        s.sync_from_original()
+    mock_validate.assert_called_once_with()
+    assert (git_original_project / "dirty.txt").read_text() == "dirty\n"
+
+
+def test_direct_repo_write_sync_to_original_noop_but_validates(
+    git_original_project: Path, sandbox_base: Path
+) -> None:
+    s = SandboxDirs(
+        "sb_dw_sync_to",
+        project_path=str(git_original_project),
+        base_path=sandbox_base,
+        dangerous_allow_direct_repo_write=True,
+    )
+    s.create()
+    # A dirty original normally makes sync_to_original raise; with direct
+    # repo write nothing is synced, so it must not raise.
+    (git_original_project / "dirty.txt").write_text("dirty\n", encoding="utf-8")
+    with patch.object(
+        s, "validate_git_project_dir", wraps=s.validate_git_project_dir
+    ) as mock_validate:
+        s.sync_to_original()
+    mock_validate.assert_called_once_with()
+    assert (git_original_project / "dirty.txt").read_text() == "dirty\n"
+
+
+def test_direct_repo_write_sync_to_original_auto_rebase_noop_but_validates(
+    git_original_project: Path, sandbox_base: Path
+) -> None:
+    s = SandboxDirs(
+        "sb_dw_auto_rebase",
+        project_path=str(git_original_project),
+        base_path=sandbox_base,
+        dangerous_allow_direct_repo_write=True,
+    )
+    s.create()
+    (git_original_project / "dirty.txt").write_text("dirty\n", encoding="utf-8")
+    with patch.object(
+        s, "validate_git_project_dir", wraps=s.validate_git_project_dir
+    ) as mock_validate:
+        s.sync_to_original_auto_rebase()
+    mock_validate.assert_called_once_with()
+    assert (git_original_project / "dirty.txt").read_text() == "dirty\n"
+
+
+def test_direct_repo_write_may_need_to_sync_to_original_false(
+    git_original_project: Path, sandbox_base: Path
+) -> None:
+    s = SandboxDirs(
+        "sb_dw_may_need",
+        project_path=str(git_original_project),
+        base_path=sandbox_base,
+        dangerous_allow_direct_repo_write=True,
+    )
+    s.create()
+    # Even a dirty original never needs a sync with direct repo write.
+    (git_original_project / "dirty.txt").write_text("dirty\n", encoding="utf-8")
+    assert s.may_need_to_sync_to_original() is False
+
+
+def test_direct_repo_write_sync_git_from_original_noop(
+    git_original_project: Path, sandbox_base: Path
+) -> None:
+    s = SandboxDirs(
+        "sb_dw_git_from",
+        project_path=str(git_original_project),
+        base_path=sandbox_base,
+        dangerous_allow_direct_repo_write=True,
+    )
+    s.create()
+    repo = git.Repo(git_original_project)
+    try:
+        head_before = repo.head.commit.hexsha
+        remotes_before = sorted(r.name for r in repo.remotes)
+    finally:
+        repo.close()
+    with patch.object(
+        s, "validate_git_project_dir", wraps=s.validate_git_project_dir
+    ) as mock_validate:
+        s._sync_git_from_original(git_original_project)
+    mock_validate.assert_called_once_with()
+    repo = git.Repo(git_original_project)
+    try:
+        assert repo.head.commit.hexsha == head_before
+        assert sorted(r.name for r in repo.remotes) == remotes_before
+    finally:
+        repo.close()
+
+
+def test_direct_repo_write_sync_copy_from_original_noop(
+    fake_original_project: Path, sandbox_base: Path
+) -> None:
+    s = SandboxDirs(
+        "sb_dw_copy_from",
+        project_path=str(fake_original_project),
+        base_path=sandbox_base,
+        dangerous_allow_direct_repo_write=True,
+    )
+    s.create()
+    (fake_original_project / "new.txt").write_text("new\n", encoding="utf-8")
+    with patch.object(
+        s, "validate_git_project_dir", wraps=s.validate_git_project_dir
+    ) as mock_validate:
+        s._sync_copy_from_original(fake_original_project)
+    mock_validate.assert_called_once_with()
+    assert (fake_original_project / "new.txt").read_text() == "new\n"
+
+
+def test_direct_repo_write_sync_git_pull_from_sandbox_noop(
+    git_original_project: Path, sandbox_base: Path
+) -> None:
+    s = SandboxDirs(
+        "sb_dw_pull",
+        project_path=str(git_original_project),
+        base_path=sandbox_base,
+        dangerous_allow_direct_repo_write=True,
+    )
+    s.create()
+    # A dirty original normally makes the pull raise; with direct repo write
+    # it must not.
+    (git_original_project / "dirty.txt").write_text("dirty\n", encoding="utf-8")
+    with patch.object(
+        s, "validate_git_project_dir", wraps=s.validate_git_project_dir
+    ) as mock_validate:
+        s._sync_git_pull_from_sandbox(git_original_project)
+    mock_validate.assert_called_once_with()
+    assert (git_original_project / "dirty.txt").read_text() == "dirty\n"
+
+
+def test_direct_repo_write_sync_patch_noop(
+    fake_original_project: Path, sandbox_base: Path
+) -> None:
+    s = SandboxDirs(
+        "sb_dw_patch",
+        project_path=str(fake_original_project),
+        base_path=sandbox_base,
+        dangerous_allow_direct_repo_write=True,
+    )
+    s.create()
+    (fake_original_project / "new.txt").write_text("new\n", encoding="utf-8")
+    with patch.object(
+        s, "validate_git_project_dir", wraps=s.validate_git_project_dir
+    ) as mock_validate:
+        s._sync_patch(fake_original_project)
+    mock_validate.assert_called_once_with()
+    assert not (fake_original_project / TIZ_PATCHES_DIR).exists()
+    assert (fake_original_project / "new.txt").read_text() == "new\n"

@@ -439,6 +439,55 @@ def test_create_sandbox_already_exists_no_project_path(
     assert sb2.exists()
 
 
+def test_create_sandbox_dangerous_allow_direct_repo_write_default_false(
+    sandbox_base: Path,
+) -> None:
+    """dangerous_allow_direct_repo_write defaults to False."""
+    mgr = _auto_detect(sandbox_base)
+    sb = mgr.create_sandbox("direct_write_default")
+    assert sb.exists()
+    assert sb.allows_direct_repo_write is False
+
+
+def test_create_sandbox_dangerous_allow_direct_repo_write_true(
+    sandbox_base: Path, tmp_path: Path
+) -> None:
+    """When enabled, project/ symlinks to the original project."""
+    project = tmp_path / "myproject"
+    project.mkdir()
+    (project / "file.txt").write_text("hello")
+    mgr = _auto_detect(sandbox_base)
+    sb = mgr.create_sandbox(
+        "direct_write_sb",
+        project_path=str(project),
+        dangerous_allow_direct_repo_write=True,
+    )
+    assert sb.exists()
+    assert sb.allows_direct_repo_write is True
+    assert sb.project_dir.is_symlink()
+    assert sb.project_dir.resolve() == project.resolve()
+    assert (sb.project_dir / "file.txt").read_text() == "hello"
+
+
+def test_create_sandbox_dangerous_allow_direct_repo_write_conflicts_with_readonly(
+    sandbox_base: Path, tmp_path: Path
+) -> None:
+    """readonly_sandbox and dangerous_allow_direct_repo_write are mutually exclusive."""
+    project = tmp_path / "myproject"
+    project.mkdir()
+    mgr = _auto_detect(sandbox_base)
+    with pytest.raises(
+        ValueError,
+        match="readonly_project and dangerous_allow_direct_repo_write cannot both be enabled",
+    ):
+        mgr.create_sandbox(
+            "conflict_sb",
+            project_path=str(project),
+            readonly_sandbox=True,
+            dangerous_allow_direct_repo_write=True,
+        )
+
+
 # ---------------------------------------------------------------------------
 # create_container
 # ---------------------------------------------------------------------------
