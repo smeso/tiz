@@ -47,7 +47,12 @@ class SandboxProjectDir(Path):
     mount read-only.
     """
 
-    _flavour = type(Path())._flavour  # type: ignore[attr-defined]
+    # ``Path`` subclasses on Python < 3.12 must set ``_flavour`` to the
+    # platform-specific flavour or path operations fail at runtime.  On
+    # 3.12+ the attribute no longer exists on the concrete classes and the
+    # correct flavour is inherited from ``PurePath`` (``os.path``), so fall
+    # back to it when the concrete class does not expose ``_flavour``.
+    _flavour = getattr(type(Path()), "_flavour", os.path)
 
 
 class SandboxDirs:

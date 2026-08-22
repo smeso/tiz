@@ -13,7 +13,7 @@ from unittest.mock import patch
 import git
 import pytest
 
-from tiz.sandbox_dirs import TIZ_PATCHES_DIR, SandboxDirs
+from tiz.sandbox_dirs import TIZ_PATCHES_DIR, SandboxDirs, SandboxProjectDir
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -871,6 +871,85 @@ def test_get_project_dir(sandbox_base: Path) -> None:
     s = SandboxDirs("sb35", base_path=sandbox_base)
     s.create()
     assert s.project_dir == (sandbox_base / "sb35" / "project")
+
+
+# ===========================================================================
+# SandboxProjectDir – Path subclass flavour
+# ===========================================================================
+
+
+def test_sandbox_project_dir_is_path_subclass() -> None:
+    assert issubclass(SandboxProjectDir, Path)
+
+
+def test_sandbox_project_dir_flavour_matches_concrete_path() -> None:
+    """The flavour must be the concrete platform flavour.
+
+    Python < 3.12 requires an explicit ``_flavour`` on ``Path`` subclasses;
+    on 3.12+ it falls back to the flavour inherited from ``PurePath``.
+    """
+    expected = getattr(type(Path()), "_flavour", os.path)
+    assert SandboxProjectDir._flavour is expected
+    assert SandboxProjectDir._flavour is not None
+
+
+def test_sandbox_project_dir_operations() -> None:
+    p = SandboxProjectDir("/tmp/some/dir")
+    assert isinstance(p, SandboxProjectDir)
+    assert isinstance(p, Path)
+    assert p.as_posix() == "/tmp/some/dir"
+    assert str(p) == "/tmp/some/dir"
+    assert p.name == "dir"
+    assert p.parent == SandboxProjectDir("/tmp/some")
+    assert p.parts == ("/", "tmp", "some", "dir")
+    assert (p / "child" / "file.txt").as_posix() == "/tmp/some/dir/child/file.txt"
+    assert p.joinpath("a", "b") == SandboxProjectDir("/tmp/some/dir/a/b")
+    assert (
+        SandboxProjectDir("/tmp/some/dir").resolve() == Path("/tmp/some/dir").resolve()
+    )
+    assert list(SandboxProjectDir("/a/b/c").parents) == [
+        SandboxProjectDir("/a/b"),
+        SandboxProjectDir("/a"),
+        SandboxProjectDir("/"),
+    ]
+
+
+def test_sandbox_project_dir_classmethods() -> None:
+    assert isinstance(SandboxProjectDir.cwd(), SandboxProjectDir)
+    assert isinstance(SandboxProjectDir.home(), SandboxProjectDir)
+
+
+def test_sandbox_project_dir_pickle_roundtrip(tmp_path: Path) -> None:
+    import pickle
+
+    p = SandboxProjectDir(tmp_path / "pickled")
+    restored = pickle.loads(pickle.dumps(p))
+    assert restored == p
+    assert isinstance(restored, SandboxProjectDir)
+    assert str(restored) == str(p)
+
+
+def test_sandbox_project_dir_os_fspath() -> None:
+    p = SandboxProjectDir("/tmp/fspath")
+    assert os.fspath(p) == "/tmp/fspath"
+    assert Path(p) == Path("/tmp/fspath")
+
+
+def test_readonly_project_dir_type(
+    fake_original_project: Path, sandbox_base: Path
+) -> None:
+    s = SandboxDirs(
+        "sb_ro_type",
+        project_path=str(fake_original_project),
+        base_path=sandbox_base,
+        readonly_project=True,
+    )
+    s.create()
+    pd = s.project_dir
+    assert isinstance(pd, SandboxProjectDir)
+    assert pd == fake_original_project.resolve()
+    assert isinstance(pd / "README.md", SandboxProjectDir)
+    assert (pd / "README.md").read_text(encoding="utf-8") == "# Hello"
 
 
 def test_get_shared_general_dir(sandbox_base: Path) -> None:
