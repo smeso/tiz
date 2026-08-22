@@ -95,6 +95,45 @@ def _commit_file(
     )
 
 
+def _sandbox_needs_sync(s: SandboxDirs) -> bool:
+    """Return True if sync_to_original would transfer changes from the sandbox.
+
+    Test-side oracle that used to be provided by the (now removed)
+    ``SandboxDirs`` sync-state helper.
+    """
+    original_path = s._original_project_path
+    if original_path is None or not original_path.exists():
+        return False
+    if s._readonly_project or s._dangerous_allow_direct_repo_write:
+        return False
+    if not s._project_dir.exists():
+        return False
+    if s.is_git_repo(s._project_dir) and s.is_git_repo(original_path):
+        s.validate_git_project_dir()
+        sandbox_repo = git.Repo(s._project_dir)
+        try:
+            if sandbox_repo.is_dirty(untracked_files=True):
+                return True
+            try:
+                sandbox_branch = sandbox_repo.active_branch.name
+            except TypeError:
+                return True
+            sandbox_head = sandbox_repo.head.commit.hexsha
+        finally:
+            sandbox_repo.close()
+        orig_repo = git.Repo(original_path)
+        try:
+            orig_branches = {h.name for h in orig_repo.heads}
+            if sandbox_branch not in orig_branches:
+                return True
+            return sandbox_head != orig_repo.commit(sandbox_branch).hexsha
+        except (git.GitCommandError, TypeError):
+            return True
+        finally:
+            orig_repo.close()
+    return bool(s._sync_patch_helper(original_path))
+
+
 @pytest.fixture
 def sandbox_base(tmp_path: Path) -> Path:
     return tmp_path / "sandboxes"
@@ -791,9 +830,9 @@ def test_sync_to_original_git(git_original_project: Path, sandbox_base: Path) ->
     s.create()
     (s.project_dir / "feature.txt").write_text("feature content\n", encoding="utf-8")
     assert not (git_original_project / "feature.txt").exists()
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_to_original()
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     assert (git_original_project / "feature.txt").read_text() == "feature content\n"
 
 
@@ -828,9 +867,9 @@ def test_sync_to_original_git_force(
         s.sync_to_original()
     assert not (git_original_project / "branch_file.txt").exists()
     assert (git_original_project / "original_diverge.txt").exists()
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_to_original(force=True)
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     assert (git_original_project / "branch_file.txt").read_text() == "branch content\n"
     assert not (git_original_project / "original_diverge.txt").exists()
 
@@ -861,7 +900,7 @@ def test_sync_to_original_no_changes_non_git(
     (orig / "a.txt").write_text("a\n", encoding="utf-8")
     s = SandboxDirs("sb32b", project_path=str(orig), base_path=sandbox_base)
     s.create()
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     s.sync_to_original()
     patches_dir = orig / TIZ_PATCHES_DIR
     assert not patches_dir.exists()
@@ -1593,9 +1632,9 @@ def test_sync_to_original_non_git_creates_patch(
     s.create()
     (s.project_dir / "a.txt").write_text("modified\n", encoding="utf-8")
     (s.project_dir / "new.txt").write_text("new file\n", encoding="utf-8")
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_to_original()
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     patches_dir = orig / TIZ_PATCHES_DIR
     assert patches_dir.exists()
     patch_files = list(patches_dir.glob("*.patch"))
@@ -1630,9 +1669,9 @@ def test_sync_to_original_non_git_no_changes(
     (orig / "a.txt").write_text("same\n", encoding="utf-8")
     s = SandboxDirs("sb48b", project_path=str(orig), base_path=sandbox_base)
     s.create()
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     s.sync_to_original()
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     patches_dir = orig / TIZ_PATCHES_DIR
     patch_files = list(patches_dir.glob("*.patch"))
     assert len(patch_files) == 0
@@ -1649,9 +1688,9 @@ def test_sync_to_original_non_git_no_changes_gitignore(
     s = SandboxDirs("sb48b", project_path=str(orig), base_path=sandbox_base)
     s.create()
     (s.project_dir / "test.log").write_text("test")
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     s.sync_to_original()
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     patches_dir = orig / TIZ_PATCHES_DIR
     patch_files = list(patches_dir.glob("*.patch"))
     assert len(patch_files) == 0
@@ -1671,9 +1710,9 @@ def test_sync_git_pull_nothing_to_commit_exception(
         base_path=sandbox_base,
     )
     s.create()
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     s.sync_to_original()
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     pd = s.project_dir
     assert (git_original_project / "README.md").read_text() == (
         pd / "README.md"
@@ -1693,9 +1732,9 @@ def test_sync_git_pull_existing_temp_remote(
     repo.create_remote("tiz-sandbox-tmp", "/some/path")
     repo.close()
     _commit_file(s.project_dir, "feature2.txt", "feature2")
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_to_original()
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     assert (git_original_project / "feature2.txt").read_text() == "feature2"
 
 
@@ -1709,9 +1748,9 @@ def test_sync_git_pull_no_commit(
     )
     s.create()
     (s.project_dir / "feature2.txt").write_text("feature2")
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_to_original()
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     assert (git_original_project / "feature2.txt").read_text() == "feature2"
     repo = git.Repo(str(git_original_project))
     assert not repo.is_dirty(untracked_files=True)
@@ -1730,9 +1769,9 @@ def test_sync_git_pull_no_remote_refs(
         base_path=sandbox_base,
     )
     s.create()
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     s.sync_to_original()
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
 
 
 def test_sync_from_original_dirty_original_non_git(
@@ -1745,7 +1784,7 @@ def test_sync_from_original_dirty_original_non_git(
     s.create()
     time.sleep(0.05)
     (orig / "a.txt").write_text("b\n", encoding="utf-8")
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_from_original()
     assert (s.project_dir / "a.txt").read_text(encoding="utf-8") == "b\n"
 
@@ -1778,12 +1817,12 @@ def test_sync_to_original_force_reset(
     s.create()
     _commit_file(git_original_project, "orig_extra.txt", "extra")
     _commit_file(s.project_dir, "sand_only.txt", "sand")
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     with pytest.raises(RuntimeError, match="not fast forward"):
         s.sync_to_original()
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_to_original(force=True)
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     assert (git_original_project / "sand_only.txt").read_text() == "sand"
 
 
@@ -1799,12 +1838,12 @@ def test_sync_to_original_and_from(
     pd = s.project_dir
     _commit_file(git_original_project, "orig_extra.txt", "extra")
     _commit_file(pd, "sand_only.txt", "sand")
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     with pytest.raises(RuntimeError, match="not fast forward"):
         s.sync_to_original()
     s.sync_from_original()
     s.sync_to_original()
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     assert (git_original_project / "sand_only.txt").read_text() == "sand"
     assert (git_original_project / "orig_extra.txt").read_text() == "extra"
     assert (pd / "sand_only.txt").read_text() == "sand"
@@ -2139,13 +2178,13 @@ def test_sync_to_original_no_matching_branch_ref(
     repo_s = git.Repo(str(s.project_dir))
     repo_s.git.checkout("-b", "extra-branch-sync-to")
     repo_s.close()
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_to_original()
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     repo_s = git.Repo(str(git_original_project))
     assert "extra-branch-sync-to" not in {h.name for h in repo_s.heads}
     s.sync_to_original(all_branches=True)
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     assert "extra-branch-sync-to" in {h.name for h in repo_s.heads}
     repo_s.close()
 
@@ -2819,9 +2858,9 @@ def test_sync_to_original_multiple_branches_same_active(
     repo_checkout(pd, "main")
     _commit_file(pd, "sandbox_main.txt", "sandbox main\n")
 
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_to_original()
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
 
     assert (git_original_project / "sandbox_main.txt").read_text() == "sandbox main\n"
     assert not (git_original_project / "feature_file.txt").exists()
@@ -2849,12 +2888,12 @@ def test_sync_to_original_multiple_branches_force(
     _commit_file(pd, "feature_sandbox.txt", "feature sb\n")
     repo_checkout(pd, "main")
 
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     with pytest.raises(RuntimeError, match="not fast forward"):
         s.sync_to_original()
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_to_original(force=True)
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
 
     assert (git_original_project / "sandbox_file.txt").read_text() == "sandbox file\n"
     assert not (git_original_project / "orig_extra.txt").exists()
@@ -2878,12 +2917,12 @@ def test_sync_to_original_multiple_branches_clean_sandbox_syncs(
     repo_checkout_create(pd, "feature")
     repo_checkout(pd, "main")
 
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     s.sync_to_original()
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     assert not repo_has_branch(git_original_project, "feature")
     s.sync_to_original(all_branches=True)
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     assert repo_has_branch(git_original_project, "feature")
 
 
@@ -2908,9 +2947,9 @@ def test_sync_to_original_feature_branch_active_in_original(
     _commit_file(pd, "main_file.txt", "main sync content\n")
     repo_checkout(pd, "feature")
 
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_to_original()
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
 
     assert (
         git_original_project / "feature_sync.txt"
@@ -2938,9 +2977,9 @@ def test_sync_to_original_and_from_roundtrip_multiple_branches(
     _commit_file(pd, "sandbox_feature.txt", "sandbox feature\n")
     repo_checkout(pd, "main")
 
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_to_original()
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     assert (git_original_project / "sandbox_main.txt").read_text() == "sandbox main\n"
     assert not repo_has_branch(git_original_project, "feature")
     assert not (pd / "main.txt").exists()
@@ -2999,16 +3038,16 @@ def test_sync_to_original_multiple_branches_no_matching_branch_in_original(
     repo_checkout(pd, "main")
     _commit_file(pd, "main_sb.txt", "main sb\n")
 
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_to_original()
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
 
     assert not repo_has_branch(git_original_project, "sandbox-feature")
     assert (git_original_project / "main_sb.txt").read_text() == "main sb\n"
     assert not (git_original_project / "feature_sb.txt").exists()
 
     s.sync_to_original(all_branches=True)
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     assert repo_has_branch(git_original_project, "sandbox-feature")
     assert (git_original_project / "main_sb.txt").read_text() == "main sb\n"
 
@@ -3124,9 +3163,9 @@ def test_sync_to_original_auto_rebase_succeeds(
     )
     s.create()
     (s.project_dir / "auto_rebase.txt").write_text("content\n", encoding="utf-8")
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_to_original_auto_rebase()
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     assert (git_original_project / "auto_rebase.txt").read_text() == "content\n"
 
 
@@ -3142,9 +3181,9 @@ def test_sync_to_original_auto_rebase_retries_on_ff_failure(
     pd = s.project_dir
     _commit_file(pd, "sb_file.txt", "sandbox\n")
     _commit_file(git_original_project, "orig_file.txt", "original\n")
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_to_original_auto_rebase()
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     assert (git_original_project / "sb_file.txt").read_text() == "sandbox\n"
     assert (git_original_project / "orig_file.txt").read_text() == "original\n"
 
@@ -3162,91 +3201,6 @@ def test_sync_to_original_auto_rebase_reraises_other_error(
     (git_original_project / "dirty.txt").write_text("dirty\n", encoding="utf-8")
     with pytest.raises(RuntimeError, match="is dirty"):
         s.sync_to_original_auto_rebase()
-
-
-def test_may_need_to_sync_git_checkout_error(
-    git_original_project: Path, sandbox_base: Path
-) -> None:
-    s = SandboxDirs(
-        "sb_may_need_checkout_err",
-        project_path=str(git_original_project),
-        base_path=sandbox_base,
-    )
-    s.create()
-
-    pd = s.project_dir
-    orig_repo = git.Repo(str(git_original_project))
-    sandbox_repo = git.Repo(str(pd))
-    active_name = sandbox_repo.active_branch.name
-    try:
-
-        class MockSBR:
-            def __init__(self, *a, **kw) -> None:
-                pass
-
-            @property
-            def active_branch(self):
-                return sandbox_repo.active_branch
-
-            @property
-            def heads(self):
-                return sandbox_repo.heads
-
-            @property
-            def head(self):
-                return sandbox_repo.head
-
-            @property
-            def git(self):
-                return self
-
-            @staticmethod
-            def config(*_a, **_kw):
-                raise git.GitCommandError("config", 1)
-
-            @staticmethod
-            def checkout(*_a, **_kw):
-                raise git.GitCommandError("checkout", 1)
-
-            @property
-            def submodules(self):
-                return []
-
-            def is_dirty(self, **kwargs):  # noqa: ARG002
-                return False
-
-            def close(self) -> None:
-                pass
-
-        def repo_factory(path, *_a, **_kw):
-            if str(Path(path).resolve()) == str(git_original_project.resolve()):
-                m = type("MO", (), {})()
-
-                class FakeAB:
-                    name = active_name
-
-                m.active_branch = FakeAB()
-                m.head = sandbox_repo.head
-                m.heads = sandbox_repo.heads
-
-                class FakeCommitSHARaising:
-                    @property
-                    def hexsha(self):
-                        return "abc"
-
-                def commit_raiser(_name):
-                    raise git.GitCommandError("rev-parse", 1)
-
-                m.commit = commit_raiser
-                m.close = lambda: None
-                return m
-            return MockSBR()
-
-        with patch("git.Repo", side_effect=repo_factory):
-            assert s.may_need_to_sync_to_original() is True
-    finally:
-        sandbox_repo.close()
-        orig_repo.close()
 
 
 def apply_one_patch(target_dir: Path) -> None:
@@ -3280,7 +3234,7 @@ def apply_one_patch(target_dir: Path) -> None:
         raise RuntimeError(f"patch command failed: {result.stderr.strip()}")
 
 
-def test_may_need_to_sync_non_git_symlink_in_orig(
+def test_sync_to_original_non_git_symlink_in_orig(
     tmp_path: Path, sandbox_base: Path
 ) -> None:
     orig = tmp_path / "orig_symlink_test"
@@ -3294,31 +3248,16 @@ def test_may_need_to_sync_non_git_symlink_in_orig(
     (target / "link").write_text("outside\n", encoding="utf-8")
     outside_file = s.project_dir / "link"
     outside_file.symlink_to(target / "link")
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_to_original()
     apply_one_patch(orig)
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
+    # The patch copies the symlink target as a regular file.
+    assert not (orig / "link").is_symlink()
+    assert (orig / "link").read_text() == "outside\n"
 
 
-def test_may_need_to_sync_no_original_path(sandbox_base: Path) -> None:
-    s = SandboxDirs("sb_may_need_1", base_path=sandbox_base)
-    s.create()
-    assert s.may_need_to_sync_to_original() is False
-
-
-def test_may_need_to_sync_non_git_files_same(
-    fake_original_project: Path, sandbox_base: Path
-) -> None:
-    s = SandboxDirs(
-        "sb_may_need_2",
-        project_path=str(fake_original_project),
-        base_path=sandbox_base,
-    )
-    s.create()
-    assert s.may_need_to_sync_to_original() is False
-
-
-def test_may_need_to_sync_non_git_files_changed(
+def test_sync_to_original_non_git_files_changed(
     fake_original_project: Path, sandbox_base: Path
 ) -> None:
     s = SandboxDirs(
@@ -3329,13 +3268,14 @@ def test_may_need_to_sync_non_git_files_changed(
     s.create()
     time.sleep(0.05)
     (s.project_dir / "README.md").write_text("changed\n", encoding="utf-8")
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_to_original()
     apply_one_patch(fake_original_project)
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
+    assert (fake_original_project / "README.md").read_text() == "changed\n"
 
 
-def test_may_need_to_sync_non_git_file_missing_in_sandbox(
+def test_sync_to_original_non_git_file_missing_in_sandbox(
     fake_original_project: Path, sandbox_base: Path
 ) -> None:
     s = SandboxDirs(
@@ -3345,13 +3285,14 @@ def test_may_need_to_sync_non_git_file_missing_in_sandbox(
     )
     s.create()
     (s.project_dir / "README.md").unlink()
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_to_original()
     apply_one_patch(fake_original_project)
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
+    assert not (fake_original_project / "README.md").exists()
 
 
-def test_may_need_to_sync_non_git_file_extra_in_sandbox(
+def test_sync_to_original_non_git_file_extra_in_sandbox(
     fake_original_project: Path, sandbox_base: Path
 ) -> None:
     s = SandboxDirs(
@@ -3361,13 +3302,14 @@ def test_may_need_to_sync_non_git_file_extra_in_sandbox(
     )
     s.create()
     (s.project_dir / "new_file.txt").write_text("extra\n", encoding="utf-8")
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_to_original()
     apply_one_patch(fake_original_project)
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
+    assert (fake_original_project / "new_file.txt").read_text() == "extra\n"
 
 
-def test_may_need_to_sync_non_git_with_gitignore(
+def test_sync_to_original_non_git_with_gitignore(
     tmp_path: Path, sandbox_base: Path
 ) -> None:
     orig = tmp_path / "orig_may_need_gitignore"
@@ -3378,22 +3320,12 @@ def test_may_need_to_sync_non_git_with_gitignore(
     s = SandboxDirs("sb_may_need_6", project_path=str(orig), base_path=sandbox_base)
     s.create()
     (s.project_dir / "skip.log").write_text("changed ignored\n", encoding="utf-8")
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
+    s.sync_to_original()
+    assert not (orig / TIZ_PATCHES_DIR).exists()
 
 
-def test_may_need_to_sync_git_same_commit(
-    git_original_project: Path, sandbox_base: Path
-) -> None:
-    s = SandboxDirs(
-        "sb_may_need_7",
-        project_path=str(git_original_project),
-        base_path=sandbox_base,
-    )
-    s.create()
-    assert s.may_need_to_sync_to_original() is False
-
-
-def test_may_need_to_sync_git_different_commit(
+def test_sync_to_original_git_different_commit(
     git_original_project: Path, sandbox_base: Path
 ) -> None:
     s = SandboxDirs(
@@ -3403,60 +3335,13 @@ def test_may_need_to_sync_git_different_commit(
     )
     s.create()
     _commit_file(s.project_dir, "new_file.txt", "new\n")
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_to_original()
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
+    assert (git_original_project / "new_file.txt").read_text() == "new\n"
 
 
-def test_may_need_to_sync_git_missing_branch(
-    git_original_project: Path, sandbox_base: Path
-) -> None:
-    s = SandboxDirs(
-        "sb_may_need_9",
-        project_path=str(git_original_project),
-        base_path=sandbox_base,
-    )
-    s.create()
-    repo_checkout_create(s.project_dir, "other-branch")
-    assert s.may_need_to_sync_to_original() is True
-    s.sync_to_original()
-    assert s.may_need_to_sync_to_original() is True
-    s.sync_to_original(all_branches=True)
-    assert s.may_need_to_sync_to_original() is False
-
-
-def test_may_need_to_sync_git_detached_head(
-    git_original_project: Path, sandbox_base: Path
-) -> None:
-    s = SandboxDirs(
-        "sb_may_need_10",
-        project_path=str(git_original_project),
-        base_path=sandbox_base,
-    )
-    s.create()
-    subprocess.run(
-        ["git", "checkout", "--detach"],
-        cwd=git_original_project,
-        check=True,
-        capture_output=True,
-    )
-    assert s.may_need_to_sync_to_original() is False
-
-
-def test_may_need_to_sync_project_dir_not_exists(
-    git_original_project: Path, sandbox_base: Path
-) -> None:
-    s = SandboxDirs(
-        "sb_may_need_11",
-        project_path=str(git_original_project),
-        base_path=sandbox_base,
-    )
-    s.create()
-    shutil.rmtree(s.project_dir)
-    assert s.may_need_to_sync_to_original() is False
-
-
-def test_may_need_to_sync_git_dirty(
+def test_sync_to_original_auto_rebase_dirty(
     git_original_project: Path, sandbox_base: Path
 ) -> None:
     s = SandboxDirs(
@@ -3466,12 +3351,13 @@ def test_may_need_to_sync_git_dirty(
     )
     s.create()
     (s.project_dir / "untracked.txt").write_text("untracked\n")
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_to_original_auto_rebase()
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
+    assert (git_original_project / "untracked.txt").read_text() == "untracked\n"
 
 
-def test_may_need_to_sync_git_detached_head_in_sandbox(
+def test_sync_to_original_detached_head_in_sandbox(
     git_original_project: Path, sandbox_base: Path
 ) -> None:
     s = SandboxDirs(
@@ -3486,12 +3372,22 @@ def test_may_need_to_sync_git_detached_head_in_sandbox(
         check=True,
         capture_output=True,
     )
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_to_original(all_branches=True)
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
+    sandbox_repo = git.Repo(s.project_dir)
+    orig_repo = git.Repo(git_original_project)
+    try:
+        sandbox_branch = sandbox_repo.active_branch.name
+        assert sandbox_branch.startswith("tiz-detached-")
+        assert sandbox_branch in {h.name for h in orig_repo.heads}
+        assert sandbox_repo.head.commit.hexsha == orig_repo.head.commit.hexsha
+    finally:
+        sandbox_repo.close()
+        orig_repo.close()
 
 
-def test_non_git_may_need_sync_symlink_not_file(
+def test_sync_to_original_non_git_symlink_not_file(
     tmp_path: Path, sandbox_base: Path
 ) -> None:
     orig = tmp_path / "orig_sym"
@@ -3504,7 +3400,14 @@ def test_non_git_may_need_sync_symlink_not_file(
     s.create()
     # Add symlink to original after sandbox creation so sandbox doesn't have it
     (orig / "link").symlink_to(link_target)
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
+    s.sync_to_original()
+    # A patch is produced, but patch(1) cannot remove the symlink.
+    assert _sandbox_needs_sync(s) is True
+    patches_dir = orig / TIZ_PATCHES_DIR
+    patch_files = list(patches_dir.glob("*.patch"))
+    assert len(patch_files) == 1
+    assert "link" in patch_files[0].read_text(encoding="utf-8")
 
 
 def test_sync_to_original_all_branches_force(
@@ -3524,16 +3427,16 @@ def test_sync_to_original_all_branches_force(
     _commit_file(pd, "feature.txt", "sandbox feature\n")
     repo_checkout(pd, "main")
     _commit_file(git_original_project, "orig_extra.txt", "orig extra\n")
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_to_original(all_branches=True, force=True)
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     assert (git_original_project / "sand_main.txt").read_text() == "sandbox main\n"
     assert not (git_original_project / "orig_extra.txt").exists()
     repo_checkout(git_original_project, "feature")
     assert (git_original_project / "feature.txt").read_text() == "sandbox feature\n"
 
 
-def test_non_git_may_need_sync_symlink_in_proj(
+def test_sync_to_original_non_git_symlink_in_proj(
     tmp_path: Path, sandbox_base: Path
 ) -> None:
     orig = tmp_path / "orig_sym_proj"
@@ -3547,10 +3450,12 @@ def test_non_git_may_need_sync_symlink_in_proj(
     link_target.mkdir()
     (link_target / "real.txt").write_text("real\n", encoding="utf-8")
     (s.project_dir / "link").symlink_to(link_target)
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_to_original()
     apply_one_patch(orig)
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
+    # The patch copies the symlinked directory contents as a directory.
+    assert (orig / "link" / "real.txt").read_text() == "real\n"
 
 
 def test_git_capture_branch_normal(
@@ -3890,9 +3795,9 @@ def test_sync_to_original_with_submodule(
     )
     s.create()
     _commit_file(s.project_dir, "sandbox_file.txt", "sandbox content\n")
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_to_original()
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     assert (
         git_repo_with_submodule / "sandbox_file.txt"
     ).read_text() == "sandbox content\n"
@@ -3916,11 +3821,11 @@ def test_sync_to_original_with_submodule_force(
     s.create()
     _commit_file(git_repo_with_submodule, "orig_extra.txt", "orig extra\n")
     _commit_file(s.project_dir, "sandbox_file.txt", "sandbox file\n")
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     with pytest.raises(RuntimeError, match="not fast forward"):
         s.sync_to_original()
     s.sync_to_original(force=True)
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     assert not (git_repo_with_submodule / "orig_extra.txt").exists()
     assert (
         git_repo_with_submodule / "sandbox_file.txt"
@@ -3941,12 +3846,12 @@ def test_sync_from_and_to_original_with_submodule_roundtrip(
     pd = s.project_dir
     _commit_file(pd, "sandbox_main.txt", "sandbox main\n")
     _commit_file(git_repo_with_submodule, "orig_main.txt", "orig main\n")
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     with pytest.raises(RuntimeError, match="not fast forward"):
         s.sync_to_original()
     s.sync_from_original()
     s.sync_to_original()
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     assert (
         git_repo_with_submodule / "sandbox_main.txt"
     ).read_text() == "sandbox main\n"
@@ -3981,9 +3886,9 @@ def test_sync_to_original_all_branches_skips_head_ref(
 
     monkeypatch.setattr(git.Remote, "fetch", patched_fetch)
 
-    assert s.may_need_to_sync_to_original() is True
+    assert _sandbox_needs_sync(s) is True
     s.sync_to_original(all_branches=True)
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     assert (git_original_project / "sandbox_file.txt").read_text() == "sandbox file\n"
 
 
@@ -4062,7 +3967,7 @@ def test_readonly_project_sync_noop(
     s.sync_from_original()
     s.sync_to_original()
     s.sync_to_original_auto_rebase()
-    assert s.may_need_to_sync_to_original() is False
+    assert _sandbox_needs_sync(s) is False
     assert (git_original_project / "new.txt").read_text() == "hello"
 
 
@@ -4353,21 +4258,6 @@ def test_direct_repo_write_sync_to_original_auto_rebase_noop_but_validates(
         s.sync_to_original_auto_rebase()
     mock_validate.assert_called_once_with()
     assert (git_original_project / "dirty.txt").read_text() == "dirty\n"
-
-
-def test_direct_repo_write_may_need_to_sync_to_original_false(
-    git_original_project: Path, sandbox_base: Path
-) -> None:
-    s = SandboxDirs(
-        "sb_dw_may_need",
-        project_path=str(git_original_project),
-        base_path=sandbox_base,
-        dangerous_allow_direct_repo_write=True,
-    )
-    s.create()
-    # Even a dirty original never needs a sync with direct repo write.
-    (git_original_project / "dirty.txt").write_text("dirty\n", encoding="utf-8")
-    assert s.may_need_to_sync_to_original() is False
 
 
 def test_direct_repo_write_sync_git_from_original_noop(

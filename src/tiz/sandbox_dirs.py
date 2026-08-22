@@ -949,60 +949,6 @@ class SandboxDirs:
             else:
                 raise
 
-    def may_need_to_sync_to_original(self) -> bool:
-        """Return ``True`` if the sandbox may have changes that should be
-        synced back to the original project directory.
-
-        For git repositories this checks whether the HEAD commit of the
-        current branch in the sandbox matches the same branch in the
-        original repository.
-
-        For non-git directories it checks whether a patch would be produced
-        by sync_to_original.
-        """
-        original_path = self._original_project_path
-        if original_path is None or not original_path.exists():
-            return False
-        if self._readonly_project:
-            return False
-        if self._dangerous_allow_direct_repo_write:
-            return False
-        if not self._project_dir.exists():
-            return False
-
-        if self.is_git_repo(self._project_dir) and self.is_git_repo(original_path):
-            return self._git_may_need_to_sync(original_path)
-        return self._non_git_may_need_to_sync(original_path)
-
-    def _git_may_need_to_sync(self, original_path: Path) -> bool:
-        self.validate_git_project_dir()
-        sandbox_repo = git.Repo(self._project_dir)
-        try:
-            if sandbox_repo.is_dirty(untracked_files=True):
-                return True
-            try:
-                sandbox_branch_name = sandbox_repo.active_branch.name
-            except TypeError:
-                return True
-            head_commit = sandbox_repo.head.commit.hexsha
-        finally:
-            sandbox_repo.close()
-
-        orig_repo = git.Repo(original_path)
-        try:
-            orig_branches = {h.name for h in orig_repo.heads}
-            if sandbox_branch_name not in orig_branches:
-                return True
-            orig_head_commit = orig_repo.commit(sandbox_branch_name).hexsha
-            return head_commit != orig_head_commit
-        except (git.GitCommandError, TypeError):
-            return True
-        finally:
-            orig_repo.close()
-
-    def _non_git_may_need_to_sync(self, original_path: Path) -> bool:
-        return bool(self._sync_patch_helper(original_path))
-
     def sync_to_original(
         self, *, force: bool = False, all_branches: bool = False
     ) -> None:
