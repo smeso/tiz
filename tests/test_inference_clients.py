@@ -325,6 +325,43 @@ class TestChatNonStream:
         ):
             client._chat_non_stream({"messages": []})
 
+    def test_chat_non_stream_http_error_logs_response_body(self, caplog):
+        client = LlamaCpp()
+        error_resp = MagicMock()
+        error_resp.status_code = 502
+        error_resp.text = '{"error": {"message": "upstream down", "code": 502}}'
+        http_error = requests.exceptions.HTTPError(response=error_resp)
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"choices": []}
+        mock_resp.headers = {"Content-Type": "application/json"}
+        with (
+            caplog.at_level("DEBUG", logger="tiz.inference_clients"),
+            patch(
+                "tiz.inference_clients.requests.post",
+                side_effect=[http_error, mock_resp],
+            ) as mock_post,
+            patch("time.sleep"),
+        ):
+            result = client._chat_non_stream({"messages": []}, max_retries=3)
+        assert result == {"choices": []}
+        assert mock_post.call_count == 2
+        assert "HTTP error 502" in caplog.text
+        assert '{"error": {"message": "upstream down", "code": 502}}' in caplog.text
+
+    def test_chat_non_stream_http_error_log_not_visible_at_info(self, caplog):
+        client = LlamaCpp()
+        error_resp = MagicMock()
+        error_resp.status_code = 500
+        error_resp.text = "secret body"
+        http_error = requests.exceptions.HTTPError(response=error_resp)
+        with (
+            caplog.at_level("INFO", logger="tiz.inference_clients"),
+            patch("tiz.inference_clients.requests.post", side_effect=http_error),
+            pytest.raises(requests.exceptions.HTTPError),
+        ):
+            client._chat_non_stream({"messages": []}, max_retries=0)
+        assert "secret body" not in caplog.text
+
     def test_chat_non_stream_retryable_codes(self):
         client = LlamaCpp()
         for code in [500, 502, 503, 504, 429]:
@@ -3708,6 +3745,33 @@ class TestAnthropicClientChatNonStream:
         ):
             client._chat_non_stream({"model": "test"})
 
+    def test_chat_non_stream_http_error_logs_response_body(self, caplog):
+        client = AnthropicClient(api_key="sk-ant-test")
+        error_resp = MagicMock()
+        error_resp.status_code = 429
+        error_resp.text = '{"type": "error", "error": {"message": "rate limited"}}'
+        http_error = requests.exceptions.HTTPError(response=error_resp)
+        api_result = {
+            "content": [{"type": "text", "text": "Hello!"}],
+            "usage": {},
+        }
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = api_result
+        mock_resp.status_code = 200
+        with (
+            caplog.at_level("DEBUG", logger="tiz.inference_clients"),
+            patch(
+                "tiz.inference_clients.requests.post",
+                side_effect=[http_error, mock_resp],
+            ) as mock_post,
+            patch("time.sleep"),
+        ):
+            result = client._chat_non_stream({"model": "test"}, max_retries=3)
+        assert result["choices"][0]["message"]["content"] == "Hello!"
+        assert mock_post.call_count == 2
+        assert "HTTP error 429" in caplog.text
+        assert '{"type": "error", "error": {"message": "rate limited"}}' in caplog.text
+
     def test_chat_non_stream_uses_message_timeout(self):
         client = AnthropicClient(api_key="sk-ant-test", message_timeout=300.0)
         api_result = {
@@ -4765,6 +4829,52 @@ class TestAnthropicClientAdditional:
         ):
             result = client._chat_stream({"model": "test"}, callback, max_retries=3)
         assert result["choices"][0]["message"]["content"] == "OK"
+
+    def test_chat_stream_http_error_logs_response_body(self, caplog):
+        """Cover Anthropic _chat_stream HTTPError logging the response body."""
+        client = AnthropicClient(api_key="sk-ant-test")
+        callback_calls: list[dict[str, Any]] = []
+
+        def callback(chunk, _subtask_name=None):
+            callback_calls.append(chunk)
+
+        error_resp = MagicMock()
+        error_resp.status_code = 503
+        error_resp.text = '{"type": "error", "error": {"message": "overloaded"}}'
+        http_error = requests.exceptions.HTTPError(response=error_resp)
+
+        success_resp = MagicMock()
+        success_resp.iter_lines.return_value = [
+            b"event: message_start",
+            b'data: {"type": "message_start", "message": {"usage": {"input_tokens": 1, "output_tokens": 0}}}',
+            b"",
+            b"event: content_block_start",
+            b'data: {"type": "content_block_start", "content_block": {"type": "text", "text": "OK"}}',
+            b"",
+            b"event: message_delta",
+            b'data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}}',
+            b"",
+            b"event: message_stop",
+            b'data: {"type": "message_stop"}',
+            b"",
+        ]
+        success_resp.status_code = 200
+        success_resp.__enter__ = MagicMock(return_value=success_resp)
+        success_resp.__exit__ = MagicMock(return_value=False)
+
+        with (
+            caplog.at_level("DEBUG", logger="tiz.inference_clients"),
+            patch(
+                "tiz.inference_clients.requests.post",
+                side_effect=[http_error, success_resp],
+            ) as mock_post,
+            patch("time.sleep"),
+        ):
+            result = client._chat_stream({"model": "test"}, callback, max_retries=3)
+        assert result["choices"][0]["message"]["content"] == "OK"
+        assert mock_post.call_count == 2
+        assert "HTTP error 503" in caplog.text
+        assert '{"type": "error", "error": {"message": "overloaded"}}' in caplog.text
 
     def test_chat_stream_input_json_delta_out_of_bounds_index(self):
         """Cover input_json_delta with index pointing to non-tool_use block (false branch of line 1617)."""

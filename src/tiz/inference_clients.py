@@ -43,6 +43,16 @@ OPENROUTER_CATEGORIES = (
 )
 
 
+def _log_http_error_body(exc: requests.exceptions.HTTPError) -> None:
+    """Log the response body of an HTTP error at DEBUG level."""
+    if exc.response is not None:
+        logger.debug(
+            "HTTP error %s: %s",
+            exc.response.status_code,
+            exc.response.text,
+        )
+
+
 def validate_host(host: str) -> str:
     """Validate that *host* has a scheme and netloc."""
     parsed = urlparse(host)
@@ -336,6 +346,8 @@ class OpenAICompatibleClient(InferenceClient):
                 requests.exceptions.ConnectionError,
                 requests.exceptions.Timeout,
             ) as e:
+                if isinstance(e, requests.exceptions.HTTPError):
+                    _log_http_error_body(e)
                 status_code = None
                 if (
                     isinstance(e, requests.exceptions.HTTPError)
@@ -1502,6 +1514,8 @@ class AnthropicClient(InferenceClient):
                 requests.exceptions.ConnectionError,
                 requests.exceptions.Timeout,
             ) as e:
+                if isinstance(e, requests.exceptions.HTTPError):
+                    _log_http_error_body(e)
                 status_code = None
                 if (
                     isinstance(e, requests.exceptions.HTTPError)
@@ -1646,6 +1660,8 @@ class AnthropicClient(InferenceClient):
                 requests.exceptions.Timeout,
                 requests.exceptions.ChunkedEncodingError,
             ) as e:
+                if isinstance(e, requests.exceptions.HTTPError):
+                    _log_http_error_body(e)
                 status_code = None
                 if (
                     isinstance(e, requests.exceptions.HTTPError)
