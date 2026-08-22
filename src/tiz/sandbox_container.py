@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import ipaddress
 import json
 import re
 import shlex
@@ -15,6 +16,7 @@ from pathlib import Path
 from typing import Literal, overload
 
 from tiz.log import get_logger
+from tiz.manifest_parser import DEFAULT_DNS_SERVER
 from tiz.sandbox_dirs import SandboxDirs
 
 logger = get_logger(__name__)
@@ -50,10 +52,15 @@ _ALREADY_STOPPED_INDICATORS = (
 _VALID_CONTAINER_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
 
 OCI_START_HOOK_NAME = "firewall.json"
+OCI_HOOK_SCRIPT_DNS_TEMPLATE = (
+    "/usr/sbin/iptables -A OUTPUT -d {dns_server} -p udp --dport 53 -j ACCEPT\n"
+)
 OCI_HOOK_SCRIPT_CONTENT = """\
 #!/bin/sh
 
 set -e
+
+{}
 
 /usr/sbin/iptables -A OUTPUT -d 10.0.0.0/8 -j DROP
 /usr/sbin/iptables -A OUTPUT -d 172.16.0.0/12 -j DROP
@@ -65,6 +72,12 @@ set -e
 /usr/sbin/ip6tables -A OUTPUT -d fe80::/10 -j DROP
 /usr/sbin/ip6tables -A OUTPUT -d ff00::/8 -j DROP
 """
+
+
+def _validate_dns_server(dns_server: str | None) -> None:
+    """Validate *dns_server* is ``None`` or a dotted-quad IPv4 address."""
+    if dns_server is not None:
+        ipaddress.IPv4Address(dns_server)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -135,6 +148,7 @@ class SandboxContainer:
         image: str = DEFAULT_IMAGE,
         network: str = DEFAULT_NETWORK,
         *,
+        dns_server: str | None = DEFAULT_DNS_SERVER,
         container_name: str,
         verbose: int = 0,
         extra_run_args: list[str] | None = None,
@@ -155,6 +169,10 @@ class SandboxContainer:
             Container image to use.
         network:
             Container network mode.
+        dns_server:
+            DNS server IPv4 address to configure for the container when
+            *network* is not ``"none"``. ``None`` disables the ``--dns``
+            argument and the matching iptables allow rule.
         container_name:
             Human-readable container name.
         verbose:
@@ -188,6 +206,7 @@ class SandboxContainer:
                 f"Invalid container name {container_name!r}: "
                 "must start with A-Za-z0-9 and contain only A-Za-z0-9_.- characters"
             )
+        _validate_dns_server(dns_server)
         logger.info("Starting container '%s' with image '%s'", container_name, image)
         project_dir = self._sandbox_dirs.project_dir
         shared_general_dir = self._sandbox_dirs.shared_general_dir
@@ -209,6 +228,8 @@ class SandboxContainer:
         ]
         cmd.extend(["--name", container_name])
         cmd.extend(["--network", network])
+        if network != "none" and dns_server is not None:
+            cmd.extend(["--dns", dns_server])
 
         should_mount_project = mount_project and project_dir.exists()
         if should_mount_project:
@@ -279,7 +300,13 @@ class SandboxContainer:
             if oci_hooks:
                 hooks_dir = Path(tmpdirname)
                 hook_script = hooks_dir / "hook.sh"
-                hook_script.write_text(OCI_HOOK_SCRIPT_CONTENT, encoding="utf-8")
+                if network != "none" and dns_server is not None:
+                    hook_content = OCI_HOOK_SCRIPT_CONTENT.format(
+                        OCI_HOOK_SCRIPT_DNS_TEMPLATE.format(dns_server=dns_server)
+                    )
+                else:
+                    hook_content = OCI_HOOK_SCRIPT_CONTENT.format("")
+                hook_script.write_text(hook_content, encoding="utf-8")
                 hook_script.chmod(0o755)
                 hook_spec = {
                     "version": "1.0.0",

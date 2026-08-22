@@ -25,6 +25,7 @@ from tiz.manifest_parser import (
     Manifest,
     ManifestMeta,
     PromptsAction,
+    ReadonlyMount,
     SubagentSpec,
     TaskSpec,
     ToolSpec,
@@ -42,6 +43,7 @@ def _make_meta(**kwargs: Any) -> ManifestMeta:
         committer_name=kwargs.get("committer_name", "Tester"),
         committer_email=kwargs.get("committer_email", "tester@example.com"),
         container_engine=kwargs.get("container_engine"),
+        dns_server=kwargs.get("dns_server"),
         color=kwargs.get("color", True),
         color_reasoning=kwargs.get("color_reasoning", DEFAULT_COLOR_REASONING),
         color_input=kwargs.get("color_input", DEFAULT_COLOR_INPUT),
@@ -2047,10 +2049,67 @@ def test_create_task_resources_with_conversion_container(
     assert resources.conversion_sandbox is not None
     assert isinstance(resources.conversion_sandbox, ConversionSandbox)
     assert mgr_instance.create_container.call_count == 2
+    tool_call_kwargs = mgr_instance.create_container.call_args_list[0].kwargs
+    assert tool_call_kwargs["network"] == "none"
+    assert tool_call_kwargs["mount_project"] is True
+    assert tool_call_kwargs["read_only_project"] is False
+    assert tool_call_kwargs["dns_server"] is None
     conv_call_kwargs = mgr_instance.create_container.call_args_list[1].kwargs
     assert conv_call_kwargs["network"] == "none"
     assert conv_call_kwargs["mount_project"] is False
     assert conv_call_kwargs["read_only_project"] is True
+    assert conv_call_kwargs["dns_server"] is None
+
+
+def test_create_task_resources_passes_dns_server(tmp_path: Path) -> None:
+    """create_container receives the meta dns_server option for all containers."""
+    task = _make_task(
+        name="dns_task",
+        tools=[ToolSpec(name="read_file", network="none", disk_mode="disk")],
+        actions=[PromptsAction(message_groups=[["x"]])],
+    )
+    manifest = _make_manifest(
+        engines=[_make_llamacpp_engine()],
+        dns_server="9.9.9.9",
+    )
+    executor = _make_executor(manifest, tmp_path)
+
+    with (
+        patch("tiz.base_task_executor.SandboxManager") as mock_mgr_cls,
+        patch("tiz.base_task_executor.BaseTaskExecutor._discover_tools") as mock_disc,
+    ):
+        mgr_instance = MagicMock()
+        mock_mgr_cls.return_value = mgr_instance
+        sandbox_dirs = MagicMock()
+        mgr_instance.create_sandbox.return_value = sandbox_dirs
+        container_mock = MagicMock()
+        container_mock.worker_socket_path = "/tmp/sock"
+        container_mock.shared_dir = None
+        conversion_container_mock = MagicMock()
+        conversion_container_mock.worker_socket_path = "/tmp/conv_sock"
+        conversion_container_mock.shared_dir = tmp_path / "conversion_shared"
+        mgr_instance.create_container.side_effect = [
+            container_mock,
+            conversion_container_mock,
+        ]
+        tool_cls = MagicMock()
+        tool_cls.fname.return_value = "read_file"
+        mock_disc.return_value = {"read_file": tool_cls}
+
+        resources = executor._create_task_resources(
+            task=task,
+            create_conversion_container=True,
+        )
+
+    assert resources.sandbox_name == "dns_task"
+    assert len(resources.tool_instances) == 1
+    assert resources.conversion_sandbox is not None
+    assert isinstance(resources.conversion_sandbox, ConversionSandbox)
+    assert mgr_instance.create_container.call_count == 2
+    tool_call_kwargs = mgr_instance.create_container.call_args_list[0].kwargs
+    assert tool_call_kwargs["dns_server"] == "9.9.9.9"
+    conv_call_kwargs = mgr_instance.create_container.call_args_list[1].kwargs
+    assert conv_call_kwargs["dns_server"] == "9.9.9.9"
 
 
 def test_create_task_resources_with_conversion_container_extra_args(
@@ -3990,7 +4049,8 @@ def test_create_sub_agents_tool_callback_accumulates_usage_and_saves_log(
         mock_factory.return_value = lambda: MagicMock()
         result = executor._create_sub_agents_tool(task, "sandbox", mgr)
 
-    callback = result._subagents["mysub"]["usage_callback"]
+    assert result is not None
+    callback = result._subagents["mysub"]["usage_callback"]  # type: ignore[union-attr]
     usage = {"prompt_tokens": 50, "completion_tokens": 25, "cost": 0.01}
     conv: list[dict[str, Any]] = [{"role": "user", "content": "hello"}]
     callback(usage, conv)
@@ -4635,7 +4695,9 @@ def test_create_tool_instances_from_specs_with_readonly_mounts(tmp_path: Path) -
         "tiz-worker:latest",
         mock_manager,
         error_context="direct",
-        readonly_mounts=readonly_mounts,
+        readonly_mounts=[
+            ReadonlyMount(src=m["src"], dest=m["dest"]) for m in readonly_mounts
+        ],
     )
 
     assert len(tools) == 1

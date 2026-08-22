@@ -11,6 +11,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import getpass
+import ipaddress
 import os
 import re
 import shutil
@@ -28,6 +29,7 @@ _VALID_DISK_MODES: dict[str, int] = {"disk": 3, "ro-disk": 2, "ro_disk": 2, "nod
 
 DEFAULT_COLOR_REASONING = "#758182"
 DEFAULT_COLOR_INPUT = "#ff00ff"
+DEFAULT_DNS_SERVER = "1.1.1.1"
 _DEFAULT_WORKER_IMAGE = "tiz-worker:latest"
 
 
@@ -194,6 +196,7 @@ class ManifestMeta:
     committer_name: str | None = None
     committer_email: str | None = None
     container_engine: str | None = None
+    dns_server: str | None = DEFAULT_DNS_SERVER
     color: bool | None = None
     color_reasoning: str | None = None
     color_input: str | None = None
@@ -238,6 +241,21 @@ def _merge(m1: Manifest, m2: Manifest) -> Manifest:
     def _pick(v1: Any, v2: Any) -> Any:
         return v2 if v2 is not None else v1
 
+    def _pick_dns_server(v1: str | None, v2: str | None) -> str | None:
+        """Pick the effective dns_server, preserving explicit settings.
+
+        The parser normalises an unset dns_server to DEFAULT_DNS_SERVER, so a
+        later manifest that merely carries that default must not override an
+        explicitly configured DNS server from an earlier manifest.
+        """
+        if v2 is None:
+            return v1
+        if v1 is None:
+            return v2
+        if v2 == DEFAULT_DNS_SERVER and v1 != DEFAULT_DNS_SERVER:
+            return v1
+        return v2
+
     return Manifest(
         meta=ManifestMeta(
             version=m1.meta.version,
@@ -245,6 +263,7 @@ def _merge(m1: Manifest, m2: Manifest) -> Manifest:
             committer_name=_pick(m1.meta.committer_name, m2.meta.committer_name),
             committer_email=_pick(m1.meta.committer_email, m2.meta.committer_email),
             container_engine=_pick(m1.meta.container_engine, m2.meta.container_engine),
+            dns_server=_pick_dns_server(m1.meta.dns_server, m2.meta.dns_server),
             color=_pick(m1.meta.color, m2.meta.color),
             color_reasoning=_pick(m1.meta.color_reasoning, m2.meta.color_reasoning),
             color_input=_pick(m1.meta.color_input, m2.meta.color_input),
@@ -418,6 +437,16 @@ class ManifestParser:
         )
         if container_engine is not None and shutil.which(container_engine) is None:
             raise ValueError(f"Container engine '{container_engine}' not found in PATH")
+        raw_dns_server = self._get_key(raw_meta, "dns_server")
+        dns_server: str = DEFAULT_DNS_SERVER
+        if raw_dns_server is not None:
+            raw_dns_str = str(raw_dns_server)
+            try:
+                dns_server = str(ipaddress.IPv4Address(raw_dns_str))
+            except ipaddress.AddressValueError:
+                raise ValueError(
+                    f"Invalid dns_server '{raw_dns_str}': must be an IPv4 address"
+                ) from None
         color = self._get_key(raw_meta, "color")
         color = self._to_bool(color) if color is not None else None
         raw_color_reasoning = self._get_key(raw_meta, "color_reasoning")
@@ -512,6 +541,7 @@ class ManifestParser:
             committer_name=committer_name,
             committer_email=committer_email,
             container_engine=container_engine,
+            dns_server=dns_server,
             color=color,
             color_reasoning=color_reasoning,
             color_input=color_input,

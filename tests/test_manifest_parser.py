@@ -12,6 +12,7 @@ import pytest
 import yaml
 
 from tiz.manifest_parser import (
+    DEFAULT_DNS_SERVER,
     CmdAction,
     ConfirmationSpec,
     InferenceEngineSpec,
@@ -264,6 +265,7 @@ def test_merge_propagates_engine_and_color() -> None:
             committer_name="A",
             committer_email="a@x",
             container_engine="docker",
+            dns_server="1.1.1.1",
             color=True,
             color_reasoning="#000000",
             color_input="#ffffff",
@@ -288,6 +290,7 @@ def test_merge_propagates_engine_and_color() -> None:
             committer_name="B",
             committer_email="b@x",
             container_engine="podman",
+            dns_server="9.9.9.9",
             color=False,
             color_reasoning="#ffffff",
             color_input="#000000",
@@ -308,6 +311,7 @@ def test_merge_propagates_engine_and_color() -> None:
     )
     result = _merge(m1, m2)
     assert result.meta.container_engine == "podman"
+    assert result.meta.dns_server == "9.9.9.9"
     assert result.meta.color is False
     assert result.meta.color_reasoning == "#ffffff"
     assert result.meta.color_input == "#000000"
@@ -322,6 +326,82 @@ def test_merge_propagates_engine_and_color() -> None:
     assert result.meta.ring_bell is True
     assert result.meta.tools_default_user_agent == "AgentB/1.0"
     assert result.meta.ephemeral_sandbox is False
+
+
+def test_merge_dns_server_default_when_both_unset() -> None:
+    m1 = Manifest(
+        meta=ManifestMeta(version="1.0"),
+        tasks=[],
+        inference_engines=[],
+    )
+    m2 = Manifest(
+        meta=ManifestMeta(version="1.0"),
+        tasks=[],
+        inference_engines=[],
+    )
+    result = _merge(m1, m2)
+    assert result.meta.dns_server == "1.1.1.1"
+
+
+def test_merge_dns_server_later_explicit_wins() -> None:
+    m1 = Manifest(
+        meta=ManifestMeta(version="1.0", dns_server="1.1.1.1"),
+        tasks=[],
+        inference_engines=[],
+    )
+    m2 = Manifest(
+        meta=ManifestMeta(version="1.0", dns_server="9.9.9.9"),
+        tasks=[],
+        inference_engines=[],
+    )
+    result = _merge(m1, m2)
+    assert result.meta.dns_server == "9.9.9.9"
+
+
+def test_merge_dns_server_default_does_not_clobber_explicit() -> None:
+    """A later unset manifest (parser default) must not override an explicit value."""
+    m1 = Manifest(
+        meta=ManifestMeta(version="1.0", dns_server="8.8.8.8"),
+        tasks=[],
+        inference_engines=[],
+    )
+    m2 = Manifest(
+        meta=ManifestMeta(version="1.0", dns_server="1.1.1.1"),
+        tasks=[],
+        inference_engines=[],
+    )
+    result = _merge(m1, m2)
+    assert result.meta.dns_server == "8.8.8.8"
+
+
+def test_merge_dns_server_none_later_keeps_earlier() -> None:
+    m1 = Manifest(
+        meta=ManifestMeta(version="1.0", dns_server="8.8.8.8"),
+        tasks=[],
+        inference_engines=[],
+    )
+    m2 = Manifest(
+        meta=ManifestMeta(version="1.0", dns_server=None),
+        tasks=[],
+        inference_engines=[],
+    )
+    result = _merge(m1, m2)
+    assert result.meta.dns_server == "8.8.8.8"
+
+
+def test_merge_dns_server_none_earlier_uses_later() -> None:
+    m1 = Manifest(
+        meta=ManifestMeta(version="1.0", dns_server=None),
+        tasks=[],
+        inference_engines=[],
+    )
+    m2 = Manifest(
+        meta=ManifestMeta(version="1.0", dns_server="8.8.8.8"),
+        tasks=[],
+        inference_engines=[],
+    )
+    result = _merge(m1, m2)
+    assert result.meta.dns_server == "8.8.8.8"
 
 
 def test_merge_verbosity_last_wins() -> None:
@@ -949,6 +1029,79 @@ def test_parse_meta_ephemeral_sandbox_true_delete_false_raises() -> None:
         match="If 'ephemeral_sandbox' is True then 'delete_sandbox_on_exit' must be True",
     ):
         ManifestParser(data=data, path=None)
+
+
+def test_parse_meta_dns_server_default() -> None:
+    data = _make_data(meta={"version": "0"})
+    parser = ManifestParser(data=data, path=None)
+    assert parser.meta.dns_server == DEFAULT_DNS_SERVER
+
+
+def test_parse_meta_dns_server_explicit_default_value() -> None:
+    data = _make_data(meta={"version": "0", "dns_server": "1.1.1.1"})
+    parser = ManifestParser(data=data, path=None)
+    assert parser.meta.dns_server == "1.1.1.1"
+
+
+def test_parse_meta_dns_server_valid() -> None:
+    data = _make_data(meta={"version": "0", "dns_server": "8.8.8.8"})
+    parser = ManifestParser(data=data, path=None)
+    assert parser.meta.dns_server == "8.8.8.8"
+
+
+def test_parse_meta_dns_server_int_value_raises() -> None:
+    """dns_server as an int is stringified; non-dotted-quad strings are rejected."""
+    data = _make_data(meta={"version": "0", "dns_server": 0})
+    with pytest.raises(ValueError, match="Invalid dns_server '0'"):
+        ManifestParser(data=data, path=None)
+
+
+def test_parse_meta_dns_server_hyphenated() -> None:
+    """Hyphenated dns-server key should be accepted."""
+    data = _make_data(meta={"version": "0", "dns-server": "9.9.9.9"})
+    parser = ManifestParser(data=data, path=None)
+    assert parser.meta.dns_server == "9.9.9.9"
+
+
+def test_parse_meta_dns_server_underscore_wins() -> None:
+    """Underscore dns_server should win over hyphenated dns-server."""
+    data = _make_data(
+        meta={
+            "version": "0",
+            "dns_server": "1.1.1.1",
+            "dns-server": "9.9.9.9",
+        }
+    )
+    parser = ManifestParser(data=data, path=None)
+    assert parser.meta.dns_server == "1.1.1.1"
+
+
+def test_parse_meta_dns_server_invalid_raises() -> None:
+    data = _make_data(meta={"version": "0", "dns_server": "not-an-ip"})
+    with pytest.raises(ValueError, match="Invalid dns_server 'not-an-ip'"):
+        ManifestParser(data=data, path=None)
+
+
+def test_parse_meta_dns_server_ipv6_raises() -> None:
+    data = _make_data(meta={"version": "0", "dns_server": "2001:db8::1"})
+    with pytest.raises(ValueError, match="Invalid dns_server '2001:db8::1'"):
+        ManifestParser(data=data, path=None)
+
+
+def test_parse_meta_dns_server_short_octet_raises() -> None:
+    data = _make_data(meta={"version": "0", "dns_server": "127.1"})
+    with pytest.raises(ValueError, match="Invalid dns_server '127.1'"):
+        ManifestParser(data=data, path=None)
+
+
+def test_parse_meta_dns_server_octet_range_raises() -> None:
+    data = _make_data(meta={"version": "0", "dns_server": "256.1.1.1"})
+    with pytest.raises(ValueError, match="Invalid dns_server '256.1.1.1'"):
+        ManifestParser(data=data, path=None)
+
+
+def test_default_dns_server_constant() -> None:
+    assert DEFAULT_DNS_SERVER == "1.1.1.1"
 
 
 # ---------------------------------------------------------------------------

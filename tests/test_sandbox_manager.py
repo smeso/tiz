@@ -463,6 +463,7 @@ def test_create_container_auto_name(sandbox_base: Path) -> None:
         extra_run_args=None,
         verbose=0,
         use_host_timezone=True,
+        dns_server="1.1.1.1",
         custom_tools_dir=None,
         extra_readonly_mounts=None,
     )
@@ -487,6 +488,7 @@ def test_create_container_explicit_name(sandbox_base: Path) -> None:
         extra_run_args=None,
         verbose=0,
         use_host_timezone=True,
+        dns_server="1.1.1.1",
         custom_tools_dir=None,
         extra_readonly_mounts=None,
     )
@@ -578,6 +580,7 @@ def test_create_container_network_internet_rewritten(sandbox_base: Path) -> None
         extra_run_args=None,
         verbose=0,
         use_host_timezone=True,
+        dns_server="1.1.1.1",
         custom_tools_dir=None,
         extra_readonly_mounts=None,
     )
@@ -623,6 +626,7 @@ def test_create_container_network_none_not_rewritten(sandbox_base: Path) -> None
         extra_run_args=None,
         verbose=0,
         use_host_timezone=True,
+        dns_server="1.1.1.1",
         custom_tools_dir=None,
         extra_readonly_mounts=None,
     )
@@ -647,6 +651,7 @@ def test_create_container_network_bridge_not_rewritten(sandbox_base: Path) -> No
         extra_run_args=None,
         verbose=0,
         use_host_timezone=True,
+        dns_server="1.1.1.1",
         custom_tools_dir=None,
         extra_readonly_mounts=None,
     )
@@ -673,6 +678,7 @@ def test_create_container_network_default_none_not_rewritten(
         extra_run_args=None,
         verbose=0,
         use_host_timezone=True,
+        dns_server="1.1.1.1",
         custom_tools_dir=None,
         extra_readonly_mounts=None,
     )
@@ -703,6 +709,7 @@ def test_create_container_with_extra_args(sandbox_base: Path) -> None:
         extra_run_args=["--memory=512m"],
         verbose=0,
         use_host_timezone=True,
+        dns_server="1.1.1.1",
         custom_tools_dir=None,
         extra_readonly_mounts=None,
     )
@@ -731,6 +738,7 @@ def test_create_container_base_path_does_not_exist(sandbox_base: Path) -> None:
         extra_run_args=None,
         verbose=0,
         use_host_timezone=True,
+        dns_server="1.1.1.1",
         custom_tools_dir=None,
         extra_readonly_mounts=None,
     )
@@ -757,6 +765,7 @@ def test_create_container_with_tools_worker_dir(sandbox_base: Path) -> None:
         extra_run_args=None,
         verbose=0,
         use_host_timezone=True,
+        dns_server="1.1.1.1",
         custom_tools_dir=tools_worker,
         extra_readonly_mounts=None,
     )
@@ -785,6 +794,7 @@ def test_create_container_base_path_exists_but_no_tools_worker_dir(
         extra_run_args=None,
         verbose=0,
         use_host_timezone=True,
+        dns_server="1.1.1.1",
         custom_tools_dir=None,
         extra_readonly_mounts=None,
     )
@@ -809,6 +819,7 @@ def test_create_container_mount_project_false(sandbox_base: Path) -> None:
         extra_run_args=None,
         verbose=0,
         use_host_timezone=True,
+        dns_server="1.1.1.1",
         custom_tools_dir=None,
         extra_readonly_mounts=None,
     )
@@ -833,6 +844,7 @@ def test_create_container_verbose_1(sandbox_base: Path) -> None:
         extra_run_args=None,
         verbose=1,
         use_host_timezone=True,
+        dns_server="1.1.1.1",
         custom_tools_dir=None,
         extra_readonly_mounts=None,
     )
@@ -857,6 +869,7 @@ def test_create_container_verbose_2(sandbox_base: Path) -> None:
         extra_run_args=None,
         verbose=2,
         use_host_timezone=True,
+        dns_server="1.1.1.1",
         custom_tools_dir=None,
         extra_readonly_mounts=None,
     )
@@ -881,6 +894,7 @@ def test_create_container_use_host_timezone_false(sandbox_base: Path) -> None:
         extra_run_args=None,
         verbose=0,
         use_host_timezone=False,
+        dns_server="1.1.1.1",
         custom_tools_dir=None,
         extra_readonly_mounts=None,
     )
@@ -912,12 +926,75 @@ def test_create_container_with_extra_readonly_mounts(sandbox_base: Path) -> None
         extra_run_args=None,
         verbose=0,
         use_host_timezone=True,
+        dns_server="1.1.1.1",
         custom_tools_dir=None,
         extra_readonly_mounts=[
             (Path("/host/foo"), "/container/foo"),
             (Path("/host/bar"), "/container/bar"),
         ],
     )
+
+
+def test_create_container_custom_dns_server(sandbox_base: Path) -> None:
+    mgr = _auto_detect(sandbox_base)
+    sb = SandboxDirs("sb1", base_path=sandbox_base / "sandboxes")
+    sb.create()
+    sc = MagicMock(spec=SandboxContainer)
+    with patch("tiz.sandbox_manager.SandboxContainer", return_value=sc):
+        mgr.create_container("sb1", image="myimg", dns_server="9.9.9.9")
+    name = sc.start.call_args[1]["container_name"]
+    assert name.startswith(f"{TIZ_WORKER_PREFIX}sb1_")
+    assert len(name) == len(f"{TIZ_WORKER_PREFIX}sb1_") + 3
+    sc.start.assert_called_once_with(
+        image="myimg",
+        container_name=name,
+        network="none",
+        read_only_project=False,
+        mount_project=True,
+        extra_run_args=None,
+        verbose=0,
+        use_host_timezone=True,
+        dns_server="9.9.9.9",
+        custom_tools_dir=None,
+        extra_readonly_mounts=None,
+    )
+
+
+def test_create_container_dns_server_none(sandbox_base: Path) -> None:
+    mgr = _auto_detect(sandbox_base)
+    sb = SandboxDirs("sb1", base_path=sandbox_base / "sandboxes")
+    sb.create()
+    sc = MagicMock(spec=SandboxContainer)
+    with patch("tiz.sandbox_manager.SandboxContainer", return_value=sc):
+        mgr.create_container("sb1", image="myimg", dns_server=None)
+    name = sc.start.call_args[1]["container_name"]
+    assert name.startswith(f"{TIZ_WORKER_PREFIX}sb1_")
+    assert len(name) == len(f"{TIZ_WORKER_PREFIX}sb1_") + 3
+    sc.start.assert_called_once_with(
+        image="myimg",
+        container_name=name,
+        network="none",
+        read_only_project=False,
+        mount_project=True,
+        extra_run_args=None,
+        verbose=0,
+        use_host_timezone=True,
+        dns_server=None,
+        custom_tools_dir=None,
+        extra_readonly_mounts=None,
+    )
+
+
+def test_create_container_returns_container(sandbox_base: Path) -> None:
+    mgr = _auto_detect(sandbox_base)
+    sb = SandboxDirs("sb1", base_path=sandbox_base / "sandboxes")
+    sb.create()
+    sc = MagicMock(spec=SandboxContainer)
+    with patch("tiz.sandbox_manager.SandboxContainer", return_value=sc):
+        result = mgr.create_container("sb1", image="myimg", dns_server="8.8.8.8")
+    assert result is sc
+    sc.start.assert_called_once()
+    assert sc.start.call_args[1]["dns_server"] == "8.8.8.8"
 
 
 # ---------------------------------------------------------------------------

@@ -12,6 +12,9 @@ import pytest
 
 from tiz.sandbox_container import (
     _ALREADY_STOPPED_INDICATORS,
+    DEFAULT_DNS_SERVER,
+    OCI_HOOK_SCRIPT_CONTENT,
+    OCI_HOOK_SCRIPT_DNS_TEMPLATE,
     ContainerMeta,
     SandboxContainer,
 )
@@ -398,6 +401,10 @@ def test_start_with_network(sandbox_dirs: SandboxDirs) -> None:
     assert "--read-only" in cmd
     assert "--network" in cmd
     assert cmd[cmd.index("--network") + 1] == "bridge"
+    # network != "none" implies a DNS server
+    assert "--dns" in cmd
+    dns_idx = cmd.index("--dns")
+    assert cmd[dns_idx + 1] == "1.1.1.1"
     assert "--userns=keep-id:uid=1000,gid=1000" in cmd
     assert "--workdir" in cmd
     assert cmd[cmd.index("--workdir") + 1] == "/opt/container_shared"
@@ -407,20 +414,20 @@ def test_start_with_network(sandbox_dirs: SandboxDirs) -> None:
         "-lc",
         "exec /usr/bin/env python3 /usr/local/bin/worker.py /opt/container_shared/exe.sock",
     ]
-    assert cmd[-14] == "--mount"
+    mount_indices = [i for i, c in enumerate(cmd) if c == "--mount"]
+    assert len(mount_indices) == 4
     assert (
-        cmd[-13]
+        cmd[mount_indices[0] + 1]
         == f"type=bind,source={sandbox_dirs.shared_general_dir},target=/opt/shared,rw,nosuid,nodev"
     )
-    assert cmd[-12] == "--mount"
-    assert cmd[-11].endswith(
+    assert cmd[mount_indices[1] + 1].endswith(
         "/tiz/sandbox_worker.py,target=/usr/local/bin/worker.py,ro"
     )
-    assert cmd[-10] == "--mount"
-    assert cmd[-9].endswith("/tiz/worker_scripts,target=/opt/scripts,ro,nosuid,nodev")
-    assert cmd[-8] == "--mount"
+    assert cmd[mount_indices[2] + 1].endswith(
+        "/tiz/worker_scripts,target=/opt/scripts,ro,nosuid,nodev"
+    )
     assert (
-        cmd[-7]
+        cmd[mount_indices[3] + 1]
         == f"type=bind,source={sandbox_dirs.shared_container_dir('test-c')},target=/opt/container_shared,rw,nosuid,nodev"
     )
     assert sc.container_id == "container_id_1"
@@ -1426,8 +1433,6 @@ def test_exec_in_container_error(
 
 
 def test_start_with_oci_hooks_enabled(sandbox_dirs: SandboxDirs) -> None:
-    from tiz.sandbox_container import OCI_HOOK_SCRIPT_CONTENT
-
     sc = SandboxContainer(sandbox_dirs)
     captured_cmds: list[list[str]] = []
     captured_hooks_dir: Path | None = None
@@ -1447,7 +1452,8 @@ def test_start_with_oci_hooks_enabled(sandbox_dirs: SandboxDirs) -> None:
             assert hook_spec["version"] == "1.0.0"
             assert "path" in hook_spec["hook"]
             assert hook_spec["stages"] == ["createContainer"]
-            assert script_files[0].read_text() == OCI_HOOK_SCRIPT_CONTENT
+            # network is "none" so no DNS allow rule should be present
+            assert script_files[0].read_text() == OCI_HOOK_SCRIPT_CONTENT.format("")
         return _success_result()
 
     with patch.object(sc, "_run_subprocess", side_effect=capture):
@@ -1457,6 +1463,47 @@ def test_start_with_oci_hooks_enabled(sandbox_dirs: SandboxDirs) -> None:
     assert sc.shared_dir is not None
     assert sc.shared_dir.exists()
     assert "--hooks-dir" in captured_cmds[0]
+    assert captured_hooks_dir is not None
+
+
+def test_start_with_oci_hooks_dns_rule(sandbox_dirs: SandboxDirs) -> None:
+    """network != 'none' adds a DNS allow rule at the top of the hook script."""
+    sc = SandboxContainer(sandbox_dirs)
+    captured_cmds: list[list[str]] = []
+    captured_hooks_dir: Path | None = None
+
+    def capture(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        nonlocal captured_hooks_dir
+        captured_cmds.append(cmd)
+        if "--hooks-dir" in cmd:
+            hooks_dir_idx = cmd.index("--hooks-dir")
+            captured_hooks_dir = Path(cmd[hooks_dir_idx + 1])
+            script_files = list(captured_hooks_dir.glob("*.sh"))
+            assert len(script_files) == 1
+            script_content = script_files[0].read_text()
+            expected = OCI_HOOK_SCRIPT_CONTENT.format(
+                OCI_HOOK_SCRIPT_DNS_TEMPLATE.format(dns_server="8.8.8.8")
+            )
+            assert script_content == expected
+            # the DNS allow rule must come before the drop rules
+            dns_rule = (
+                "/usr/sbin/iptables -A OUTPUT -d 8.8.8.8 -p udp --dport 53 -j ACCEPT"
+            )
+            drop_rule = "/usr/sbin/iptables -A OUTPUT -d 10.0.0.0/8 -j DROP"
+            assert script_content.index(dns_rule) < script_content.index(drop_rule)
+        return _success_result()
+
+    with patch.object(sc, "_run_subprocess", side_effect=capture):
+        sc.start(
+            container_name="test-c",
+            network="bridge",
+            dns_server="8.8.8.8",
+            oci_hooks=True,
+            use_host_timezone=False,
+        )
+    assert "--dns" in captured_cmds[0]
+    dns_idx = captured_cmds[0].index("--dns")
+    assert captured_cmds[0][dns_idx + 1] == "8.8.8.8"
     assert captured_hooks_dir is not None
 
 
@@ -1522,9 +1569,196 @@ def test_worker_socket_path_with_container_name(sandbox_dirs: SandboxDirs) -> No
 
 
 def test_oci_hook_script_content_has_shebang() -> None:
-    from tiz.sandbox_container import OCI_HOOK_SCRIPT_CONTENT
-
     assert OCI_HOOK_SCRIPT_CONTENT.startswith("#!/bin/sh")
+
+
+def test_default_dns_server_global() -> None:
+    assert DEFAULT_DNS_SERVER == "1.1.1.1"
+
+
+def test_start_with_network_none_no_dns(sandbox_dirs: SandboxDirs) -> None:
+    """network='none' must not add --dns even with a dns_server set."""
+    sc = SandboxContainer(sandbox_dirs)
+    captured_cmds: list[list[str]] = []
+
+    def capture(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        captured_cmds.append(cmd)
+        return _success_result()
+
+    with patch.object(sc, "_run_subprocess", side_effect=capture):
+        sc.start(
+            container_name="test-c",
+            network="none",
+            dns_server="8.8.8.8",
+            oci_hooks=False,
+            use_host_timezone=False,
+        )
+    cmd = captured_cmds[0]
+    assert "--network" in cmd
+    assert cmd[cmd.index("--network") + 1] == "none"
+    assert "--dns" not in cmd
+
+
+def test_start_with_network_bridge_dns_none(sandbox_dirs: SandboxDirs) -> None:
+    """network != 'none' but dns_server=None must not add --dns."""
+    sc = SandboxContainer(sandbox_dirs)
+    captured_cmds: list[list[str]] = []
+
+    def capture(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        captured_cmds.append(cmd)
+        return _success_result()
+
+    with patch.object(sc, "_run_subprocess", side_effect=capture):
+        sc.start(
+            container_name="test-c",
+            network="bridge",
+            dns_server=None,
+            oci_hooks=False,
+            use_host_timezone=False,
+        )
+    cmd = captured_cmds[0]
+    assert "--network" in cmd
+    assert cmd[cmd.index("--network") + 1] == "bridge"
+    assert "--dns" not in cmd
+
+
+def test_start_with_network_bridge_custom_dns(sandbox_dirs: SandboxDirs) -> None:
+    """Custom dns_server is used for --dns."""
+    sc = SandboxContainer(sandbox_dirs)
+    captured_cmds: list[list[str]] = []
+
+    def capture(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        captured_cmds.append(cmd)
+        return _success_result()
+
+    with patch.object(sc, "_run_subprocess", side_effect=capture):
+        sc.start(
+            container_name="test-c",
+            network="bridge",
+            dns_server="9.9.9.9",
+            oci_hooks=False,
+            use_host_timezone=False,
+        )
+    cmd = captured_cmds[0]
+    assert "--dns" in cmd
+    dns_idx = cmd.index("--dns")
+    assert cmd[dns_idx + 1] == "9.9.9.9"
+
+
+def test_start_invalid_dns_server_raises(sandbox_dirs: SandboxDirs) -> None:
+    sc = SandboxContainer(sandbox_dirs)
+    with pytest.raises(ValueError, match="Expected 4 octets"):
+        sc.start(
+            container_name="test-c",
+            network="bridge",
+            dns_server="not-an-ip",
+            oci_hooks=False,
+            use_host_timezone=False,
+        )
+
+
+def test_start_invalid_dns_server_ipv6_raises(sandbox_dirs: SandboxDirs) -> None:
+    sc = SandboxContainer(sandbox_dirs)
+    with pytest.raises(ValueError, match="Expected 4 octets"):
+        sc.start(
+            container_name="test-c",
+            network="bridge",
+            dns_server="2001:db8::1",
+            oci_hooks=False,
+            use_host_timezone=False,
+        )
+
+
+def test_start_invalid_dns_server_short_octet_raises(
+    sandbox_dirs: SandboxDirs,
+) -> None:
+    sc = SandboxContainer(sandbox_dirs)
+    with pytest.raises(ValueError, match="Expected 4 octets"):
+        sc.start(
+            container_name="test-c",
+            network="bridge",
+            dns_server="127.1",
+            oci_hooks=False,
+            use_host_timezone=False,
+        )
+
+
+def test_start_invalid_dns_server_octet_range_raises(
+    sandbox_dirs: SandboxDirs,
+) -> None:
+    sc = SandboxContainer(sandbox_dirs)
+    with pytest.raises(ValueError, match="not permitted"):
+        sc.start(
+            container_name="test-c",
+            network="bridge",
+            dns_server="256.1.1.1",
+            oci_hooks=False,
+            use_host_timezone=False,
+        )
+
+
+def test_start_with_oci_hooks_dns_rule_default(sandbox_dirs: SandboxDirs) -> None:
+    """network != 'none' and default dns adds 1.1.1.1 allow rule."""
+    sc = SandboxContainer(sandbox_dirs)
+    captured_cmds: list[list[str]] = []
+    captured_hooks_dir: Path | None = None
+
+    def capture(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        nonlocal captured_hooks_dir
+        captured_cmds.append(cmd)
+        if "--hooks-dir" in cmd:
+            hooks_dir_idx = cmd.index("--hooks-dir")
+            captured_hooks_dir = Path(cmd[hooks_dir_idx + 1])
+            script_files = list(captured_hooks_dir.glob("*.sh"))
+            assert len(script_files) == 1
+            script_content = script_files[0].read_text()
+            expected = OCI_HOOK_SCRIPT_CONTENT.format(
+                OCI_HOOK_SCRIPT_DNS_TEMPLATE.format(dns_server="1.1.1.1")
+            )
+            assert script_content == expected
+            assert "--dns" in cmd
+            assert cmd[cmd.index("--dns") + 1] == "1.1.1.1"
+        return _success_result()
+
+    with patch.object(sc, "_run_subprocess", side_effect=capture):
+        sc.start(
+            container_name="test-c",
+            network="bridge",
+            oci_hooks=True,
+            use_host_timezone=False,
+        )
+    assert captured_hooks_dir is not None
+
+
+def test_start_with_oci_hooks_dns_none_no_rule(sandbox_dirs: SandboxDirs) -> None:
+    """dns_server=None must not add a DNS allow rule."""
+    sc = SandboxContainer(sandbox_dirs)
+    captured_cmds: list[list[str]] = []
+    captured_hooks_dir: Path | None = None
+
+    def capture(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        nonlocal captured_hooks_dir
+        captured_cmds.append(cmd)
+        if "--hooks-dir" in cmd:
+            hooks_dir_idx = cmd.index("--hooks-dir")
+            captured_hooks_dir = Path(cmd[hooks_dir_idx + 1])
+            script_files = list(captured_hooks_dir.glob("*.sh"))
+            assert len(script_files) == 1
+            script_content = script_files[0].read_text()
+            assert script_content == OCI_HOOK_SCRIPT_CONTENT.format("")
+            assert "ACCEPT" not in script_content
+        return _success_result()
+
+    with patch.object(sc, "_run_subprocess", side_effect=capture):
+        sc.start(
+            container_name="test-c",
+            network="bridge",
+            dns_server=None,
+            oci_hooks=True,
+            use_host_timezone=False,
+        )
+    assert "--dns" not in captured_cmds[0]
+    assert captured_hooks_dir is not None
 
 
 def test_container_name_property_not_none(sandbox_dirs: SandboxDirs) -> None:

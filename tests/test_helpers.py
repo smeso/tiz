@@ -1264,6 +1264,7 @@ def _make_manifest(tasks: list[MagicMock] | None = None) -> MagicMock:
     manifest.meta.use_host_timezone = True
     manifest.meta.committer_name = None
     manifest.meta.committer_email = None
+    manifest.meta.dns_server = None
     return manifest
 
 
@@ -1404,6 +1405,7 @@ def test_exec_cmd_success(tmp_path: Path, monkeypatch: Any) -> None:
         extra_run_args=None,
         verbose=0,
         use_host_timezone=True,
+        dns_server=None,
         extra_readonly_mounts=None,
     )
     popen.assert_called_once_with(["docker", "exec", "-it", "abc123", "echo", "hello"])
@@ -1493,6 +1495,7 @@ def test_exec_cmd_success_with_project_and_force_copy(
         extra_run_args=None,
         verbose=0,
         use_host_timezone=True,
+        dns_server=None,
         extra_readonly_mounts=None,
     )
 
@@ -1569,6 +1572,7 @@ def test_exec_cmd_verbosity_none(tmp_path: Path, monkeypatch: Any) -> None:
         extra_run_args=None,
         verbose=0,
         use_host_timezone=True,
+        dns_server=None,
         extra_readonly_mounts=None,
     )
 
@@ -1739,6 +1743,7 @@ def test_exec_cmd_extra_run_args(tmp_path: Path, monkeypatch: Any) -> None:
         extra_run_args=extra_args,
         verbose=0,
         use_host_timezone=True,
+        dns_server=None,
         extra_readonly_mounts=None,
     )
     mock_container.stop.assert_called_once_with(timeout=0)
@@ -1787,6 +1792,7 @@ def test_exec_cmd_readonly_mounts_passed_to_container(
         extra_run_args=None,
         verbose=0,
         use_host_timezone=True,
+        dns_server=None,
         extra_readonly_mounts=[
             (Path("/host/data"), "/data"),
             (Path("/host/secrets"), "/secrets"),

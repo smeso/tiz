@@ -135,6 +135,7 @@ def exec_cmd(
                 if manifest.meta.use_host_timezone is None
                 else manifest.meta.use_host_timezone
             ),
+            dns_server=manifest.meta.dns_server,
             extra_readonly_mounts=extra_readonly_mounts,
         )
     except Exception as exc:

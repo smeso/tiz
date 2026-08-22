@@ -18,6 +18,7 @@ from datetime import datetime
 from pathlib import Path
 
 from tiz.log import get_logger
+from tiz.manifest_parser import DEFAULT_DNS_SERVER
 from tiz.sandbox_container import ContainerMeta, SandboxContainer
 from tiz.sandbox_dirs import (
     _INVALID_NAME_RE,
@@ -236,6 +237,7 @@ class SandboxManager:
         extra_run_args: list[str] | None = None,
         verbose: int = 0,
         use_host_timezone: bool = True,
+        dns_server: str | None = DEFAULT_DNS_SERVER,
         extra_readonly_mounts: list[tuple[Path, str]] | None = None,
     ) -> SandboxContainer:
         """Create and start a new sandbox container.
@@ -262,6 +264,10 @@ class SandboxManager:
         use_host_timezone:
             When ``True`` (default) bind-mount ``/etc/localtime`` read-only
             inside the container so it uses the host's timezone.
+        dns_server:
+            DNS server IPv4 address to configure for the container when
+            *network* is not ``"none"``. ``None`` disables the ``--dns``
+            argument and the matching iptables allow rule.
         extra_readonly_mounts:
             Optional list of ``(source_path, target_path)`` tuples to
             mount read-only inside the container. Passed through to
@@ -313,6 +319,7 @@ class SandboxManager:
             extra_run_args=extra_run_args,
             verbose=verbose,
             use_host_timezone=use_host_timezone,
+            dns_server=dns_server,
             custom_tools_dir=tools_worker_path,
             extra_readonly_mounts=extra_readonly_mounts,
         )

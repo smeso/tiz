@@ -426,6 +426,7 @@ class BaseTaskExecutor:
                 mount_project=mount_project,
                 verbose=self.manifest.meta.verbosity or 0,
                 use_host_timezone=host_tz,
+                dns_server=self.manifest.meta.dns_server,
                 extra_run_args=extra_run_args,
                 extra_readonly_mounts=extra_readonly_mounts,
             )
@@ -619,6 +620,7 @@ class BaseTaskExecutor:
                     mount_project=False,
                     verbose=self.manifest.meta.verbosity or 0,
                     use_host_timezone=conv_host_tz,
+                    dns_server=self.manifest.meta.dns_server,
                     extra_run_args=task.extra_container_args,
                     extra_readonly_mounts=extra_readonly_mounts_conv,
                 )
